@@ -2,7 +2,7 @@
 import { useState } from "react";
 import { supabase } from "@/lib/supabase";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -10,6 +10,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 export default function RegisterPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const refCode = searchParams.get("ref");
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -21,8 +23,16 @@ export default function RegisterPage() {
     const { data, error: signUpError } = await supabase.auth.signUp({ email, password, options: { data: { name } } });
     if (signUpError) { setError(signUpError.message); setLoading(false); return; }
     if (data.user) {
-      const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
-      await supabase.from("ArtistProfile").insert({ userId: data.user.id, displayName: name, slug });
+      const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
+      const profileData: Record<string, unknown> = { userId: data.user.id, displayName: name, slug };
+      if (refCode) {
+        profileData.referredBy = refCode;
+        const { data: referrer } = await supabase.from("ArtistProfile").select("userId").eq("referralCode", refCode).single();
+        if (referrer) {
+          await supabase.from("Referral").insert({ referrerId: referrer.userId, refereeId: data.user.id, status: "completed" });
+        }
+      }
+      await supabase.from("ArtistProfile").insert(profileData);
     }
     setLoading(false);
     router.push("/settings/profile");

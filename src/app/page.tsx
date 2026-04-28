@@ -77,6 +77,47 @@ export default function HomePage() {
         </div>
       </section>
 
+      <section className="w-full border-t border-stone-200">
+        <div className="mx-auto max-w-6xl px-4 py-20 sm:px-6">
+          <p className="mb-12 text-center text-sm uppercase tracking-widest text-stone-500">What artists say</p>
+          <div className="grid gap-8 sm:grid-cols-3">
+            {[
+              { quote: "Gessa saved me hours of Photoshop work. My oil paintings look like they were shot in a studio.", name: "Maria Chen", role: "Oil painter" },
+              { quote: "I don't have a professional camera. Gessa made my phone photos gallery-ready in seconds.", name: "James Rivera", role: "Mixed media artist" },
+              { quote: "Finally, a tool that respects the artwork. It preserves my brushstrokes instead of smoothing them out.", name: "Aiko Tanaka", role: "Watercolorist" },
+            ].map((t) => (
+              <div key={t.name} className="flex flex-col items-center text-center">
+                <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-stone-100 text-sm font-medium text-stone-500">{t.name.split(" ").map(n => n[0]).join("")}</div>
+                <p className="mb-3 font-serif text-base italic leading-relaxed text-stone-700">&ldquo;{t.quote}&rdquo;</p>
+                <p className="text-sm font-medium text-stone-900">{t.name}</p>
+                <p className="text-xs text-stone-500">{t.role}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      <section className="w-full border-t border-stone-200 bg-white">
+        <div className="mx-auto max-w-6xl px-4 py-20 sm:px-6">
+          <p className="mb-12 text-center text-sm uppercase tracking-widest text-stone-500">Featured artworks</p>
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            {[
+              { title: "Distant Shore", info: "Oil on canvas, 2024" },
+              { title: "Morning Light", info: "Watercolor, 2023" },
+              { title: "Urban Fragment #7", info: "Mixed media, 2024" },
+              { title: "Untitled (Blue)", info: "Acrylic on linen, 2025" },
+            ].map((a) => (
+              <div key={a.title} className="group relative aspect-[3/4] overflow-hidden rounded-sm border border-stone-200 bg-stone-100">
+                <div className="absolute inset-0 flex items-center justify-center"><Frame className="h-6 w-6 text-stone-300" strokeWidth={1.5} /></div>
+                <div className="absolute inset-x-0 bottom-0 bg-white/90 p-3 opacity-0 transition-opacity group-hover:opacity-100">
+                  <p className="text-xs text-stone-600">{a.title}</p><p className="text-xs text-stone-400">{a.info}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
       <section className="w-full border-t border-stone-200 bg-white">
         <div className="mx-auto flex max-w-6xl flex-col items-center px-4 py-20 text-center sm:px-6">
           <h2 className="max-w-lg font-serif text-2xl text-stone-900 sm:text-3xl">Present your work as it deserves to be seen.</h2>

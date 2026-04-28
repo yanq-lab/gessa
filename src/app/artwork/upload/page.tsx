@@ -11,9 +11,9 @@ import { Card, CardContent } from "@/components/ui/card";
 import { ArrowLeft, ImageIcon, X, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 
-async function uploadImageToSupabase(file: File, userId: string): Promise<string | null> {
+async function uploadImageToSupabase(file: File, userId: string, artworkId: string): Promise<string | null> {
   const ext = file.name.split(".").pop() || "jpg";
-  const path = `${userId}/${Date.now()}.${ext}`;
+  const path = `${userId}/artworks/${artworkId}/original.${ext}`;
   const { error } = await supabase.storage.from("artworks").upload(path, file, { cacheControl: "3600", upsert: false });
   if (error) { console.error("Storage upload error:", error); return null; }
   const { data } = supabase.storage.from("artworks").getPublicUrl(path);
@@ -38,9 +38,10 @@ export default function UploadArtworkPage() {
     setUploadingImage(true);
     const { data: userData } = await supabase.auth.getUser();
     if (!userData.user) { toast.error("Please sign in first"); setUploadingImage(false); return; }
-    const url = await uploadImageToSupabase(file, userData.user.id);
+    const tempArtworkId = crypto.randomUUID();
+    const url = await uploadImageToSupabase(file, userData.user.id, tempArtworkId);
     if (url) { setImageUrl(url); toast.success("Image uploaded"); }
-    else { toast.error("Upload failed. Make sure the 'artworks' bucket exists in Supabase Storage."); setPreviewUrl(null); }
+    else { toast.error("Upload failed"); setPreviewUrl(null); }
     setUploadingImage(false);
   }, []);
 
@@ -53,13 +54,16 @@ export default function UploadArtworkPage() {
     if (!userData.user) { toast.error("Please sign in first"); setLoading(false); return; }
     const { data: profile } = await supabase.from("ArtistProfile").select("id").eq("userId", userData.user.id).single();
     if (!profile) { toast.error("Please set up your artist profile first"); setLoading(false); return; }
-    const slug = form.title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") + "-" + Date.now();
+    const slug = form.title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "") + "-" + Date.now();
     const { data, error } = await supabase.from("Artwork").insert({
       artistProfileId: profile.id, title: form.title, slug, year: form.year || null, medium: form.medium || null,
       dimensions: form.dimensions || null, description: form.description || null, price: form.price || null,
-      availabilityStatus: form.availabilityStatus, originalImageUrl: imageUrl, status: "draft",
+      availabilityStatus: form.availabilityStatus, originalImageUrl: imageUrl, status: "uploaded",
     }).select("id").single();
     if (error || !data) { toast.error(error?.message || "Failed to create artwork"); setLoading(false); return; }
+    await supabase.from("ArtworkImageVersion").insert({
+      artworkId: data.id, type: "original", url: imageUrl, metadata: {},
+    });
     toast.success("Artwork uploaded");
     router.push(`/artwork/${data.id}/review`);
   };
@@ -84,8 +88,8 @@ export default function UploadArtworkPage() {
                 <label htmlFor="artwork-image" className="flex cursor-pointer flex-col items-center justify-center rounded-sm border border-dashed border-stone-300 bg-stone-50 p-8 hover:bg-stone-100 transition-colors">
                   <ImageIcon className="h-8 w-8 text-stone-400" strokeWidth={1.5} />
                   <p className="mt-2 text-sm text-stone-600">Click to upload a photo</p>
-                  <p className="text-xs text-stone-500">JPG, PNG up to 10MB</p>
-                  <input id="artwork-image" type="file" accept="image/*" onChange={handleFileChange} className="hidden" />
+                  <p className="text-xs text-stone-500">JPG, PNG, WebP up to 10MB</p>
+                  <input id="artwork-image" type="file" accept="image/png,image/jpeg,image/webp" onChange={handleFileChange} className="hidden" />
                 </label>
               </div>
             )}
