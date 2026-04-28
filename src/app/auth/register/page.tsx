@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useState, Suspense } from "react";
 import { supabase } from "@/lib/supabase";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
-export default function RegisterPage() {
+function RegisterForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const refCode = searchParams.get("ref");
@@ -47,6 +47,7 @@ export default function RegisterPage() {
             <div className="space-y-2"><Label htmlFor="name" className="text-stone-700">Name</Label><Input id="name" value={name} onChange={(e) => setName(e.target.value)} required className="border-stone-200 focus-visible:ring-stone-400" /></div>
             <div className="space-y-2"><Label htmlFor="email" className="text-stone-700">Email</Label><Input id="email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required className="border-stone-200 focus-visible:ring-stone-400" /></div>
             <div className="space-y-2"><Label htmlFor="password" className="text-stone-700">Password</Label><Input id="password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} required minLength={6} className="border-stone-200 focus-visible:ring-stone-400" /></div>
+            {refCode && <p className="text-sm text-stone-500">Referred by: {refCode}</p>}
             {error && <p className="text-sm text-red-600">{error}</p>}
             <Button type="submit" className="w-full bg-stone-900 text-stone-50 hover:bg-stone-800" disabled={loading}>{loading ? "Creating account..." : "Create account"}</Button>
           </form>
@@ -55,4 +56,8 @@ export default function RegisterPage() {
       </Card>
     </div>
   );
+}
+
+export default function RegisterPage() {
+  return <Suspense fallback={<div className="mx-auto flex w-full max-w-sm flex-col justify-center px-4 py-16 sm:px-6"><div className="h-64 animate-pulse rounded-sm bg-stone-100" /></div>}><RegisterForm /></Suspense>;
 }
