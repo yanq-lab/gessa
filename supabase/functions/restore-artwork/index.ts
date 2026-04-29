@@ -9,6 +9,12 @@ const supabase = createClient(
 const OPENROUTER_KEY = Deno.env.get("OPENAI_API_KEY")!;
 const OR_BASE = "https://openrouter.ai/api/v1";
 
+const corsHeaders = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "POST, OPTIONS", "Access-Control-Allow-Headers": "Authorization, Content-Type" };
+
+function jsonResponse(body: unknown, status = 200) {
+  return new Response(JSON.stringify(body), { status, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+}
+
 const FAITHFUL_PROMPT = `Create a faithful digital presentation of this photographed physical artwork.
 Identify the artwork as the main subject.
 Remove distracting background outside the artwork.
@@ -83,46 +89,56 @@ async function callOpenRouter(imageBase64: string, prompt: string): Promise<stri
 }
 
 serve(async (req: Request) => {
+  if (req.method === "OPTIONS") {
+    return new Response(null, {
+      headers: {
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Methods": "POST, OPTIONS",
+        "Access-Control-Allow-Headers": "Authorization, Content-Type",
+      },
+    });
+  }
+
   if (req.method !== "POST") {
-    return new Response(JSON.stringify({ ok: false, error: { code: "METHOD_NOT_ALLOWED", message: "Use POST" } }), { status: 405 });
+    return jsonResponse({ ok: false, error: { code: "METHOD_NOT_ALLOWED", message: "Use POST" } }, 405);
   }
 
   const authHeader = req.headers.get("Authorization");
   if (!authHeader) {
-    return new Response(JSON.stringify({ ok: false, error: { code: "UNAUTHORIZED", message: "Missing authorization" } }), { status: 401 });
+    return jsonResponse({ ok: false, error: { code: "UNAUTHORIZED", message: "Missing authorization" } }, 401);
   }
 
   const token = authHeader.replace("Bearer ", "");
   const { data: userData, error: authError } = await supabase.auth.getUser(token);
   if (authError || !userData.user) {
-    return new Response(JSON.stringify({ ok: false, error: { code: "UNAUTHORIZED", message: "Invalid token" } }), { status: 401 });
+    return jsonResponse({ ok: false, error: { code: "UNAUTHORIZED", message: "Invalid token" } }, 401);
   }
 
   const userId = userData.user.id;
   const { artworkId, mode = "faithful" } = await req.json();
 
   if (!artworkId) {
-    return new Response(JSON.stringify({ ok: false, error: { code: "MISSING_ARTWORK_ID", message: "artworkId is required" } }), { status: 400 });
+    return jsonResponse({ ok: false, error: { code: "MISSING_ARTWORK_ID", message: "artworkId is required" } }, 400);
   }
 
   const { data: artwork, error: artworkError } = await supabase.from("Artwork").select("id, artistProfileId, originalImageUrl, status").eq("id", artworkId).single();
   if (artworkError || !artwork) {
-    return new Response(JSON.stringify({ ok: false, error: { code: "ARTWORK_NOT_FOUND", message: "Artwork not found" } }), { status: 404 });
+    return jsonResponse({ ok: false, error: { code: "ARTWORK_NOT_FOUND", message: "Artwork not found" } }, 404);
   }
 
   const { data: profile } = await supabase.from("ArtistProfile").select("id").eq("userId", userId).single();
   if (!profile || profile.id !== artwork.artistProfileId) {
-    return new Response(JSON.stringify({ ok: false, error: { code: "FORBIDDEN", message: "You do not own this artwork" } }), { status: 403 });
+    return jsonResponse({ ok: false, error: { code: "FORBIDDEN", message: "You do not own this artwork" } }, 403);
   }
 
   const { data: allowed } = await supabase.rpc("check_transformation_allowed", { p_user_id: userId });
   if (!allowed) {
-    return new Response(JSON.stringify({ ok: false, error: { code: "QUOTA_EXCEEDED", message: "Monthly transformation limit reached." } }), { status: 429 });
+    return jsonResponse({ ok: false, error: { code: "QUOTA_EXCEEDED", message: "Monthly transformation limit reached." } }, 429);
   }
 
   const { count: regenCount } = await supabase.from("ArtworkImageVersion").select("*", { count: "exact", head: true }).eq("artworkId", artworkId).eq("type", "restored");
   if ((regenCount || 0) >= 3) {
-    return new Response(JSON.stringify({ ok: false, error: { code: "REGENERATION_LIMIT", message: "Maximum 3 regenerations per artwork." } }), { status: 429 });
+    return jsonResponse({ ok: false, error: { code: "REGENERATION_LIMIT", message: "Maximum 3 regenerations per artwork." } }, 429);
   }
 
   await supabase.from("Artwork").update({ status: "processing" }).eq("id", artworkId);
@@ -157,11 +173,11 @@ serve(async (req: Request) => {
     await supabase.from("Artwork").update({ status: "ready" }).eq("id", artworkId);
     await supabase.rpc("record_transformation", { p_user_id: userId, p_artwork_id: artworkId });
 
-    return new Response(JSON.stringify({ ok: true, artworkId, restoredImageUrl, versionId: version?.id, mode, status: "ready" }), { headers: { "Content-Type": "application/json" } });
+    return jsonResponse({ ok: true, artworkId, restoredImageUrl, versionId: version?.id, mode, status: "ready" }, 200);
 
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : "Restoration failed";
     await supabase.from("Artwork").update({ status: "uploaded" }).eq("id", artworkId);
-    return new Response(JSON.stringify({ ok: false, error: { code: "RESTORE_FAILED", message } }), { status: 500 });
+    return jsonResponse({ ok: false, error: { code: "RESTORE_FAILED", message } }, 500);
   }
 });

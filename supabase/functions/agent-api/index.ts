@@ -5,6 +5,12 @@ const supabase = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPAB
 const OPENROUTER_KEY = Deno.env.get("OPENAI_API_KEY")!;
 const OR_BASE = "https://openrouter.ai/api/v1";
 
+const corsHeaders = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "POST, GET, OPTIONS", "Access-Control-Allow-Headers": "Authorization, Content-Type" };
+
+function jsonResponse(body: unknown, status = 200) {
+  return new Response(JSON.stringify(body), { status, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+}
+
 const RESTORE_PROMPT = `Create a faithful digital presentation of this photographed physical artwork.
 Identify the artwork as the main subject. Remove distracting background. Straighten and correct perspective.
 Reduce uneven lighting, glare, shadows, and color cast. Preserve the artwork exactly.
@@ -46,18 +52,18 @@ async function transformImage(imageBase64: string): Promise<string> {
 serve(async (req: Request) => {
   const authHeader = req.headers.get("Authorization");
   if (!authHeader?.startsWith("Bearer gk_")) {
-    return new Response(JSON.stringify({ ok: false, error: "Missing API key" }), { status: 401 });
+    return jsonResponse({ ok: false, error: "Missing API key" }, 401);
   }
   const apiKey = authHeader.replace("Bearer ", "");
   const { data: keyData } = await supabase.from("ApiKey").select("userId, scopes, isActive, expiresAt").eq("key", apiKey).single();
-  if (!keyData?.isActive) return new Response(JSON.stringify({ ok: false, error: "Invalid API key" }), { status: 401 });
-  if (keyData.expiresAt && new Date(keyData.expiresAt) < new Date()) return new Response(JSON.stringify({ ok: false, error: "API key expired" }), { status: 401 });
+  if (!keyData?.isActive) return jsonResponse({ ok: false, error: "Invalid API key" }, 401);
+  if (keyData.expiresAt && new Date(keyData.expiresAt) < new Date()) return jsonResponse({ ok: false, error: "API key expired" }, 401);
 
   const userId = keyData.userId;
   const { data: sub } = await supabase.from("Subscription").select("status, tier").eq("userId", userId).order("createdAt", { ascending: false }).limit(1).single();
-  if (!sub || !["active", "trialing"].includes(sub.status)) return new Response(JSON.stringify({ ok: false, error: "No active subscription" }), { status: 402 });
+  if (!sub || !["active", "trialing"].includes(sub.status)) return jsonResponse({ ok: false, error: "No active subscription" }, 402);
   const { data: tier } = await supabase.from("TierLimit").select("apiAccess").eq("tier", sub.tier).single();
-  if (!tier?.apiAccess) return new Response(JSON.stringify({ ok: false, error: "API requires Studio or Gallery tier" }), { status: 402 });
+  if (!tier?.apiAccess) return jsonResponse({ ok: false, error: "API requires Studio or Gallery tier" }, 402);
   await supabase.from("ApiKey").update({ lastUsedAt: new Date().toISOString() }).eq("key", apiKey);
 
   const url = new URL(req.url);
@@ -65,10 +71,10 @@ serve(async (req: Request) => {
 
   if (path === "/transform" && req.method === "POST") {
     const { data: allowed } = await supabase.rpc("check_transformation_allowed", { p_user_id: userId });
-    if (!allowed) return new Response(JSON.stringify({ ok: false, error: "Quota exceeded" }), { status: 429 });
+    if (!allowed) return jsonResponse({ ok: false, error: "Quota exceeded" }, 429);
     try {
       const { image_url } = await req.json();
-      if (!image_url) return new Response(JSON.stringify({ ok: false, error: "image_url required" }), { status: 400 });
+      if (!image_url) return jsonResponse({ ok: false, error: "image_url required" }, 400);
       const imageResp = await fetch(image_url);
       if (!imageResp.ok) throw new Error("Failed to fetch image");
       const blob = await imageResp.blob();
@@ -83,9 +89,9 @@ serve(async (req: Request) => {
       await supabase.storage.from("artworks").upload(pth, buffer, { contentType: "image/png", upsert: false });
       const { data: urlData } = supabase.storage.from("artworks").getPublicUrl(pth);
       await supabase.rpc("record_transformation", { p_user_id: userId, p_artwork_id: null });
-      return new Response(JSON.stringify({ ok: true, transformed_url: urlData.publicUrl, model: "gpt-5.4-image-2" }));
+      return jsonResponse({ ok: true, transformed_url: urlData.publicUrl, model: "gpt-5.4-image-2" }));
     } catch (err: unknown) {
-      return new Response(JSON.stringify({ ok: false, error: err instanceof Error ? err.message : "Transform failed" }), { status: 500 });
+      return new Response(JSON.stringify({ ok: false, error: err instanceof Error ? err.message : "Transform failed" }, 500);
     }
   }
 
