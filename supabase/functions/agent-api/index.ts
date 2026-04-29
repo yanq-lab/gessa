@@ -89,9 +89,9 @@ serve(async (req: Request) => {
       await supabase.storage.from("artworks").upload(pth, buffer, { contentType: "image/png", upsert: false });
       const { data: urlData } = supabase.storage.from("artworks").getPublicUrl(pth);
       await supabase.rpc("record_transformation", { p_user_id: userId, p_artwork_id: null });
-      return jsonResponse({ ok: true, transformed_url: urlData.publicUrl, model: "gpt-5.4-image-2" }));
+      return jsonResponse({ ok: true, transformed_url: urlData.publicUrl, model: "gpt-5.4-image-2" });
     } catch (err: unknown) {
-      return new Response(JSON.stringify({ ok: false, error: err instanceof Error ? err.message : "Transform failed" }, 500);
+      return jsonResponse({ ok: false, error: err instanceof Error ? err.message : "Transform failed" }, 500);
     }
   }
 
