@@ -1,6 +1,6 @@
 "use client";
-import { useState, useEffect, useCallback } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useState, useEffect, useCallback, Suspense } from "react";
+import { useSearchParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 import { Button } from "@/components/ui/button";
@@ -10,10 +10,10 @@ import { toast } from "sonner";
 interface Artwork { id: string; title: string; year: string | null; medium: string | null; originalImageUrl: string | null; status: string; artistProfileId: string; slug: string; }
 interface ImageVersion { id: string; type: string; url: string; createdAt: string; metadata: { mode?: string; model?: string; quality?: string } | null; }
 
-export default function ArtworkReviewClient() {
-  const params = useParams();
+function ReviewContent() {
+  const searchParams = useSearchParams();
   const router = useRouter();
-  const id = params.id as string;
+  const id = searchParams.get("id");
 
   const [artwork, setArtwork] = useState<Artwork | null>(null);
   const [versions, setVersions] = useState<ImageVersion[]>([]);
@@ -120,7 +120,10 @@ export default function ArtworkReviewClient() {
   if (loading) {
     return <div className="mx-auto flex w-full max-w-6xl items-center justify-center px-4 py-24"><Loader2 className="h-6 w-6 animate-spin text-stone-400" /></div>;
   }
-  if (!artwork) return null;
+  if (!id || !artwork) {
+    if (!id) router.push("/dashboard");
+    return null;
+  }
 
   return (
     <div className="mx-auto w-full max-w-6xl px-4 py-12 sm:px-6">
@@ -208,4 +211,8 @@ export default function ArtworkReviewClient() {
       </div>
     </div>
   );
+}
+
+export default function ArtworkReviewPage() {
+  return <Suspense fallback={<div className="mx-auto flex w-full max-w-6xl items-center justify-center px-4 py-24"><Loader2 className="h-6 w-6 animate-spin text-stone-400" /></div>}><ReviewContent /></Suspense>;
 }

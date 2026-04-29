@@ -128,7 +128,7 @@ export default function DashboardPage() {
           ) : (
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
               {artworks.slice(0, 8).map(artwork => (
-                <Link key={artwork.id} href={"/artwork/" + artwork.id + "/review"} className="group flex flex-col gap-2">
+                <Link key={artwork.id} href={"/artwork/review?id=" + artwork.id} className="group flex flex-col gap-2">
                   <div className="relative aspect-[3/4] overflow-hidden rounded-sm border border-stone-200 bg-stone-100">
                     {artwork.publishedImageUrl || artwork.originalImageUrl ? (
                       <img src={artwork.publishedImageUrl || artwork.originalImageUrl || ""} alt={artwork.title} className="h-full w-full object-cover transition-transform group-hover:scale-[1.02]" />

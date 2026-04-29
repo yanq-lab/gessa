@@ -70,7 +70,7 @@ export default function UploadArtworkPage() {
       artworkId: data.id, type: "original", url: imageUrl, metadata: {},
     });
     toast.success("Artwork uploaded");
-    router.push(`/artwork/${data.id}/review`);
+    router.push(`/artwork/review?id=${data.id}`);
   };
 
   const clearImage = () => { setPreviewUrl(null); setImageUrl(""); };

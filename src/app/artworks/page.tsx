@@ -50,7 +50,7 @@ export default function ArtworksPage() {
                     <div><p className="text-sm font-medium text-stone-900">{artwork.title}</p><p className="text-xs text-stone-500">{artwork.year} {artwork.medium && `· ${artwork.medium}`}</p></div>
                     <div className="flex gap-1">
                       <Button variant="ghost" size="icon" className="h-8 w-8" asChild><Link href={`/artwork/${artwork.id}/edit`}><Pencil className="h-4 w-4 text-stone-500" /></Link></Button>
-                      <Button variant="ghost" size="icon" className="h-8 w-8" asChild><Link href={`/artwork/${artwork.id}/review`}><Eye className="h-4 w-4 text-stone-500" /></Link></Button>
+                      <Button variant="ghost" size="icon" className="h-8 w-8" asChild><Link href={`/artwork/review?id=${artwork.id}`}><Eye className="h-4 w-4 text-stone-500" /></Link></Button>
                     </div>
                   </div>
                 </div>
