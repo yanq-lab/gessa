@@ -11,13 +11,19 @@ import { Card, CardContent } from "@/components/ui/card";
 import { ArrowLeft, ImageIcon, X, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 
-async function uploadImageToSupabase(file: File, userId: string, artworkId: string): Promise<string | null> {
-  const ext = file.name.split(".").pop() || "jpg";
-  const path = `${userId}/artworks/${artworkId}/original.${ext}`;
-  const { error } = await supabase.storage.from("artworks").upload(path, file, { cacheControl: "3600", upsert: false });
-  if (error) { console.error("Storage upload error:", error); return null; }
-  const { data } = supabase.storage.from("artworks").getPublicUrl(path);
-  return data?.publicUrl || null;
+async function uploadImageToSupabase(file: File, userId: string): Promise<string | null> {
+  const ext = file.name.split(".").pop()?.toLowerCase() || "jpg";
+  const path = `${userId}/${Date.now()}.${ext}`;
+  try {
+    const { data, error } = await supabase.storage.from("artworks").upload(path, file, { cacheControl: "3600", upsert: false });
+    if (error) { console.error("Storage upload error:", error.message, error); return null; }
+    if (!data) { console.error("No data returned from upload"); return null; }
+    const { data: urlData } = supabase.storage.from("artworks").getPublicUrl(path);
+    return urlData?.publicUrl || null;
+  } catch (err) {
+    console.error("Upload exception:", err);
+    return null;
+  }
 }
 
 export default function UploadArtworkPage() {
@@ -38,8 +44,7 @@ export default function UploadArtworkPage() {
     setUploadingImage(true);
     const { data: userData } = await supabase.auth.getUser();
     if (!userData.user) { toast.error("Please sign in first"); setUploadingImage(false); return; }
-    const tempArtworkId = crypto.randomUUID();
-    const url = await uploadImageToSupabase(file, userData.user.id, tempArtworkId);
+    const url = await uploadImageToSupabase(file, userData.user.id);
     if (url) { setImageUrl(url); toast.success("Image uploaded"); }
     else { toast.error("Upload failed"); setPreviewUrl(null); }
     setUploadingImage(false);
