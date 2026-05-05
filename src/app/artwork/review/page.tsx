@@ -7,6 +7,8 @@ import { Button } from "@/components/ui/button";
 import { ArrowLeft, Loader2, Sparkles, ShieldAlert } from "lucide-react";
 import { toast } from "sonner";
 
+const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || "https://khqngwvvcoosqgtpmdan.supabase.co";
+
 interface Artwork { id: string; title: string; year: string | null; medium: string | null; originalImageUrl: string | null; status: string; artistProfileId: string; slug: string; }
 interface ImageVersion { id: string; type: string; url: string; createdAt: string; metadata: { mode?: string; model?: string; quality?: string } | null; }
 
@@ -58,7 +60,7 @@ function ReviewContent() {
     const { data: { session } } = await supabase.auth.getSession();
     if (!session) { toast.error("Please sign in"); setRestoring(false); return; }
     try {
-      const res = await fetch(`${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/restore-artwork`, {
+      const res = await fetch(`${SUPABASE_URL}/functions/v1/restore-artwork`, {
         method: "POST",
         headers: { Authorization: `Bearer ${session.access_token}`, "Content-Type": "application/json" },
         body: JSON.stringify({ artworkId: id, mode }),
