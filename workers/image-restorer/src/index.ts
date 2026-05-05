@@ -34,7 +34,7 @@ export default {
 
       const input: Record<string, unknown> = {
         prompt,
-        quality: "high",
+        quality: "auto",
         size: "1024x1024",
       };
 
@@ -46,7 +46,7 @@ export default {
         "openai/gpt-image-2",
         input,
         {
-          gateway: { id: "default" },
+          gateway: { id: "gessa" },
         }
       );
 

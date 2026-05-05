@@ -2,8 +2,7 @@ import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
 
 const supabase = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
-const OPENROUTER_KEY = Deno.env.get("OPENAI_API_KEY")!;
-const OR_BASE = "https://openrouter.ai/api/v1";
+const WORKER_URL = "https://dev.gessa.art";
 
 const corsHeaders = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "POST, GET, OPTIONS", "Access-Control-Allow-Headers": "Authorization, Content-Type" };
 
@@ -11,42 +10,23 @@ function jsonResponse(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), { status, headers: { ...corsHeaders, "Content-Type": "application/json" } });
 }
 
-const RESTORE_PROMPT = `Create a faithful digital presentation of this photographed physical artwork.
+const RESTORE_PROMPT = `Faithful digital restoration of this photographed physical artwork.
 Identify the artwork as the main subject. Remove distracting background. Straighten and correct perspective.
 Reduce uneven lighting, glare, shadows, and color cast. Preserve the artwork exactly.
 Do not reinterpret, repaint, beautify, or invent details.
 The result should look like a professionally photographed version of the same physical artwork.`;
 
-interface ORResponse {
-  choices?: Array<{ message?: { content?: string | null; images?: Array<{ image_url?: { url?: string } }> } }>;
-  error?: { message: string };
-}
-
-function extractBase64(dataUrl: string): string {
-  const comma = dataUrl.indexOf(",");
-  return comma >= 0 ? dataUrl.slice(comma + 1) : dataUrl;
-}
-
-async function transformImage(imageBase64: string): Promise<string> {
-  const res = await fetch(`${OR_BASE}/chat/completions`, {
+async function transformImage(imageBase64: string, mimeType: string): Promise<string> {
+  const dataUri = `data:${mimeType};base64,${imageBase64}`;
+  const res = await fetch(WORKER_URL, {
     method: "POST",
-    headers: {
-      "Authorization": `Bearer ${OPENROUTER_KEY}`, "HTTP-Referer": "https://gessa.art", "X-Title": "Gessa", "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      model: "openai/gpt-5.4-image-2", modalities: ["image", "text"],
-      messages: [{ role: "user", content: [{ type: "text", text: RESTORE_PROMPT }, { type: "image_url", image_url: { url: `data:image/jpeg;base64,${imageBase64}` } }] }],
-      max_tokens: 4096,
-    }),
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ prompt: RESTORE_PROMPT, image: dataUri }),
   });
-  const data: ORResponse = await res.json();
-  if (data.error) throw new Error(data.error.message);
-  const images = data.choices?.[0]?.message?.images;
-  if (images && images.length > 0) {
-    const url = images[0].image_url?.url;
-    if (url) return extractBase64(url);
-  }
-  throw new Error("No image returned from model");
+  if (!res.ok) throw new Error(`Worker error: ${await res.text()}`);
+  const data = await res.json();
+  if (data.error) throw new Error(data.error);
+  return data.result?.image;
 }
 
 serve(async (req: Request) => {
@@ -79,17 +59,24 @@ serve(async (req: Request) => {
       if (!imageResp.ok) throw new Error("Failed to fetch image");
       const blob = await imageResp.blob();
       const arrBuf = await blob.arrayBuffer();
-      const base64 = btoa(String.fromCharCode(...new Uint8Array(arrBuf)));
-      const restoredBase64 = await transformImage(base64);
-      const byteStr = atob(restoredBase64);
-      const buffer = new Uint8Array(byteStr.length);
-      for (let i = 0; i < byteStr.length; i++) buffer[i] = byteStr.charCodeAt(i);
+      const bytes = new Uint8Array(arrBuf);
+      let bin = ""; const chunkSize = 65536;
+      for (let i = 0; i < bytes.length; i += chunkSize) {
+        bin += String.fromCharCode.apply(null, bytes.subarray(i, i + chunkSize) as any);
+      }
+      const base64 = btoa(bin);
+      const mimeType = blob.type || "image/jpeg";
+      const resultImageUrl = await transformImage(base64, mimeType);
+      if (!resultImageUrl) throw new Error("No image returned");
+      const imgResp = await fetch(resultImageUrl);
+      if (!imgResp.ok) throw new Error("Failed to download generated image");
+      const imgBytes = new Uint8Array(await imgResp.arrayBuffer());
       const timestamp = Date.now();
       const pth = `${userId}/agent/restored-${timestamp}.png`;
-      await supabase.storage.from("artworks").upload(pth, buffer, { contentType: "image/png", upsert: false });
+      await supabase.storage.from("artworks").upload(pth, imgBytes, { contentType: "image/png", upsert: false });
       const { data: urlData } = supabase.storage.from("artworks").getPublicUrl(pth);
       await supabase.rpc("record_transformation", { p_user_id: userId, p_artwork_id: null });
-      return jsonResponse({ ok: true, transformed_url: urlData.publicUrl, model: "gpt-5.4-image-2" });
+      return jsonResponse({ ok: true, transformed_url: urlData.publicUrl, model: "gpt-image-2" });
     } catch (err: unknown) {
       return jsonResponse({ ok: false, error: err instanceof Error ? err.message : "Transform failed" }, 500);
     }
