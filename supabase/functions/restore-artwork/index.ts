@@ -55,7 +55,7 @@ async function callAIGateway(imageBase64: string, prompt: string): Promise<strin
   const res = await fetch(CF_AI_GATEWAY_URL, {
     method: "POST",
     headers: {
-      "cf-aig-authorization": `Bearer ${CF_API_TOKEN}`,
+      "Authorization": `Bearer ${CF_API_TOKEN}`,
     },
     body: formData,
   });
