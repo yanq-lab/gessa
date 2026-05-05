@@ -1,0 +1,12 @@
+{
+  "name": "gessa-image-restorer",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "deploy": "wrangler deploy"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20240512.0",
+    "wrangler": "^3.0.0"
+  }
+}

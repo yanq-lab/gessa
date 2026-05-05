@@ -1,0 +1,6 @@
+name = "gessa-image-restorer"
+main = "src/index.ts"
+compatibility_date = "2026-05-05"
+
+[[ai]]
+binding = "AI"
