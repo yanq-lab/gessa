@@ -136,7 +136,15 @@ serve(async (req: Request) => {
     if (dlError || !imageBlob) throw new Error("Failed to download original image");
 
     const arrayBuffer = await imageBlob.arrayBuffer();
-    const base64 = btoa(String.fromCharCode(...new Uint8Array(arrayBuffer)));
+    const bytes = new Uint8Array(arrayBuffer);
+    let binary = "";
+    const len = bytes.length;
+    const chunkSize = 65536;
+    for (let i = 0; i < len; i += chunkSize) {
+      const chunk = bytes.subarray(i, i + chunkSize);
+      binary += String.fromCharCode.apply(null, chunk as any);
+    }
+    const base64 = btoa(binary);
 
     const prompt = mode === "gallery" ? GALLERY_PROMPT : FAITHFUL_PROMPT;
     const restoredBase64 = await callCloudflareAI(base64, prompt);
