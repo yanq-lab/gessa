@@ -6,9 +6,8 @@ const supabase = createClient(
   Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
 );
 
-const CLOUDFLARE_AI_KEY = Deno.env.get("CLOUDFLARE_AI_API_KEY")!;
-const CF_ACCOUNT_ID = "d4c1721c6cea2fd87b61880d4c8325f3";
-const CF_AI_URL = `https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}/ai/run/openai/gpt-image-2`;
+const OPENROUTER_KEY = Deno.env.get("OPENAI_API_KEY")!;
+const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
 
 const corsHeaders = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "POST, OPTIONS", "Access-Control-Allow-Headers": "Authorization, Content-Type" };
 
@@ -36,38 +35,66 @@ Present it as a front-facing artwork image on a clean neutral background.
 Do not stylize, repaint, reinterpret, improve, or invent details.
 The result must remain a faithful representation of the uploaded physical artwork.`;
 
-interface CFAIResponse {
-  result?: { image?: string };
-  success?: boolean;
-  errors?: Array<{ message: string }>;
+interface OpenRouterResponse {
+  choices?: Array<{
+    message?: {
+      content?: string | null;
+      images?: Array<{ image_url?: { url?: string } }>;
+    };
+  }>;
+  error?: { message: string };
 }
 
-async function callCloudflareAI(imageBase64: string, prompt: string): Promise<string> {
+async function callOpenRouter(imageBase64: string, prompt: string): Promise<string> {
   const body = {
-    prompt,
-    image: imageBase64,
+    model: "openai/gpt-5.4-image-2",
+    modalities: ["image", "text"],
+    messages: [{
+      role: "user",
+      content: [
+        { type: "text", text: prompt },
+        { type: "image_url", image_url: { url: `data:image/jpeg;base64,${imageBase64}` } },
+      ],
+    }],
+    max_tokens: 4096,
   };
 
-  const res = await fetch(CF_AI_URL, {
+  const res = await fetch(OPENROUTER_URL, {
     method: "POST",
     headers: {
-      "Authorization": `Bearer ${CLOUDFLARE_AI_KEY}`,
+      "Authorization": `Bearer ${OPENROUTER_KEY}`,
+      "HTTP-Referer": "https://gessa.art",
+      "X-Title": "Gessa",
       "Content-Type": "application/json",
     },
     body: JSON.stringify(body),
   });
 
-  const data: CFAIResponse = await res.json();
-  if (!data.success && data.errors && data.errors.length > 0) {
-    throw new Error(data.errors[0].message);
+  const data: OpenRouterResponse = await res.json();
+  if (data.error) throw new Error(data.error.message);
+
+  // Try to get image from message.images field
+  const images = data.choices?.[0]?.message?.images;
+  if (images && images.length > 0) {
+    const url = images[0].image_url?.url;
+    if (url) {
+      // Extract base64 from data URL if present
+      if (url.startsWith("data:image")) {
+        const comma = url.indexOf(",");
+        return comma >= 0 ? url.slice(comma + 1) : url;
+      }
+      return url;
+    }
   }
 
-  const image = data.result?.image;
-  if (!image) {
-    throw new Error("No image returned from model");
+  // Fallback: try to extract from text content
+  const content = data.choices?.[0]?.message?.content;
+  if (content) {
+    const dataUrlMatch = content.match(/data:image\/[^;]+;base64,([A-Za-z0-9+/=]+)/);
+    if (dataUrlMatch) return dataUrlMatch[1];
   }
 
-  return image;
+  throw new Error("No image returned from model");
 }
 
 serve(async (req: Request) => {
@@ -147,7 +174,7 @@ serve(async (req: Request) => {
     const base64 = btoa(binary);
 
     const prompt = mode === "gallery" ? GALLERY_PROMPT : FAITHFUL_PROMPT;
-    const restoredBase64 = await callCloudflareAI(base64, prompt);
+    const restoredBase64 = await callOpenRouter(base64, prompt);
 
     const timestamp = Date.now();
     const restoredPath = `${userId}/artworks/${artworkId}/restored-${timestamp}.png`;
@@ -161,7 +188,7 @@ serve(async (req: Request) => {
     const { data: urlData } = supabase.storage.from("artworks").getPublicUrl(restoredPath);
     const restoredImageUrl = urlData.publicUrl;
 
-    const { data: version } = await supabase.from("ArtworkImageVersion").insert({ artworkId, type: "restored", url: restoredImageUrl, metadata: { mode, model: "gpt-image-2", provider: "cloudflare-workers-ai" } }).select("id").single();
+    const { data: version } = await supabase.from("ArtworkImageVersion").insert({ artworkId, type: "restored", url: restoredImageUrl, metadata: { mode, model: "gpt-5.4-image-2", provider: "openrouter" } }).select("id").single();
 
     await supabase.from("Artwork").update({ status: "ready" }).eq("id", artworkId);
     await supabase.rpc("record_transformation", { p_user_id: userId, p_artwork_id: artworkId });
