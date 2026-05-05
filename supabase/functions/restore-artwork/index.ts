@@ -7,9 +7,8 @@ const supabase = createClient(
 );
 
 const CF_ACCOUNT_ID = "d4c1721c6cea2fd87b61880d4c8325f3";
-const CF_GATEWAY_ID = "gessa";
-const CF_AI_GATEWAY_URL = `https://gateway.ai.cloudflare.com/v1/${CF_ACCOUNT_ID}/${CF_GATEWAY_ID}/openai/images/edits`;
-const CF_API_TOKEN = Deno.env.get("CLOUDFLARE_AI_API_KEY")!;
+const CF_AI_TOKEN = Deno.env.get("CLOUDFLARE_AI_API_KEY")!;
+const CF_AI_URL = `https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}/ai/run/@cf/black-forest-labs/flux-2-klein-9b`;
 
 const corsHeaders = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "POST, OPTIONS", "Access-Control-Allow-Headers": "Authorization, Content-Type" };
 
@@ -17,18 +16,18 @@ function jsonResponse(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), { status, headers: { ...corsHeaders, "Content-Type": "application/json" } });
 }
 
-const FAITHFUL_PROMPT = `Create a faithful digital presentation of this photographed physical artwork.
+const FAITHFUL_PROMPT = `Faithful digital restoration of this photographed physical artwork.
 Identify the artwork as the main subject.
 Remove distracting background outside the artwork.
-Straighten the artwork and correct perspective distortion where possible.
+Straighten the artwork and correct perspective distortion.
 Reduce uneven lighting, glare, shadows, and camera color cast.
-Preserve the artwork itself exactly, including composition, subject, brushwork, paper texture, canvas texture, edges, signature, marks, and imperfections.
+Preserve the artwork exactly: composition, subject, brushwork, paper texture, canvas texture, edges, signature, marks, and imperfections.
 Do not reinterpret, repaint, redesign, beautify, or invent details.
 Do not change the artist's style.
 Do not remove the artist's signature or intentional marks.
 The result should look like a professionally photographed or digitized version of the same physical artwork.`;
 
-const GALLERY_PROMPT = `Create a clean online gallery presentation of this physical artwork.
+const GALLERY_PROMPT = `Clean online gallery presentation of this physical artwork.
 Keep the artwork itself faithful and unchanged.
 Remove distracting background around the artwork.
 Straighten and crop the artwork.
@@ -37,42 +36,44 @@ Present it as a front-facing artwork image on a clean neutral background.
 Do not stylize, repaint, reinterpret, improve, or invent details.
 The result must remain a faithful representation of the uploaded physical artwork.`;
 
-async function callAIGateway(imageBase64: string, prompt: string): Promise<string> {
-  // Convert base64 to Uint8Array
+async function callWorkersAI(imageBase64: string, prompt: string): Promise<string> {
   const binaryString = atob(imageBase64);
   const bytes = new Uint8Array(binaryString.length);
   for (let i = 0; i < binaryString.length; i++) {
     bytes[i] = binaryString.charCodeAt(i);
   }
-  
-  const formData = new FormData();
-  formData.append("image", new Blob([bytes], { type: "image/jpeg" }), "image.jpg");
-  formData.append("prompt", prompt);
-  formData.append("model", "gpt-image-2");
-  formData.append("quality", "high");
-  formData.append("size", "1024x1024");
 
-  const res = await fetch(CF_AI_GATEWAY_URL, {
+  const formData = new FormData();
+  formData.append("prompt", prompt);
+  formData.append("image", new Blob([bytes], { type: "image/jpeg" }), "image.jpg");
+  formData.append("width", "1024");
+  formData.append("height", "1024");
+  formData.append("steps", "25");
+
+  const res = await fetch(CF_AI_URL, {
     method: "POST",
     headers: {
-      "Authorization": `Bearer ${CF_API_TOKEN}`,
+      "Authorization": `Bearer ${CF_AI_TOKEN}`,
     },
     body: formData,
   });
 
   if (!res.ok) {
     const errorText = await res.text();
-    throw new Error(`AI Gateway error (${res.status}): ${errorText}`);
+    throw new Error(`Workers AI error (${res.status}): ${errorText}`);
   }
 
   const data = await res.json();
-  // OpenAI Images API returns: { data: [{ url: "...", b64_json: "..." }] }
-  const b64Json = data.data?.[0]?.b64_json;
-  if (!b64Json) {
-    throw new Error("No image returned from AI Gateway");
+  if (!data.success || data.errors?.length > 0) {
+    throw new Error(data.errors?.[0]?.message || "Workers AI request failed");
   }
 
-  return b64Json;
+  const image = data.result?.image;
+  if (!image) {
+    throw new Error("No image returned from Workers AI");
+  }
+
+  return image;
 }
 
 serve(async (req: Request) => {
@@ -152,7 +153,7 @@ serve(async (req: Request) => {
     const base64 = btoa(binary);
 
     const prompt = mode === "gallery" ? GALLERY_PROMPT : FAITHFUL_PROMPT;
-    const restoredBase64 = await callAIGateway(base64, prompt);
+    const restoredBase64 = await callWorkersAI(base64, prompt);
 
     const timestamp = Date.now();
     const restoredPath = `${userId}/artworks/${artworkId}/restored-${timestamp}.png`;
@@ -166,7 +167,7 @@ serve(async (req: Request) => {
     const { data: urlData } = supabase.storage.from("artworks").getPublicUrl(restoredPath);
     const restoredImageUrl = urlData.publicUrl;
 
-    const { data: version } = await supabase.from("ArtworkImageVersion").insert({ artworkId, type: "restored", url: restoredImageUrl, metadata: { mode, model: "gpt-image-2", provider: "cloudflare-ai-gateway" } }).select("id").single();
+    const { data: version } = await supabase.from("ArtworkImageVersion").insert({ artworkId, type: "restored", url: restoredImageUrl, metadata: { mode, model: "flux-2-klein-9b", provider: "cloudflare-workers-ai" } }).select("id").single();
 
     await supabase.from("Artwork").update({ status: "ready" }).eq("id", artworkId);
     await supabase.rpc("record_transformation", { p_user_id: userId, p_artwork_id: artworkId });
