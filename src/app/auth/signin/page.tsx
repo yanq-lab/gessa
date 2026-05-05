@@ -18,11 +18,12 @@ export default function SignInPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault(); setError(""); setLoading(true);
     try {
-      const { error } = await supabase.auth.signInWithPassword({ email, password });
-      if (error) { setError(error.message); setLoading(false); return; }
-      router.push("/dashboard");
+      const { data, error: signinError } = await supabase.auth.signInWithPassword({ email, password });
+      if (signinError) { setError(signinError.message); setLoading(false); return; }
+      if (!data.user) { setError("Login failed. Please try again."); setLoading(false); return; }
+      window.location.href = "/dashboard";
     } catch (err: any) {
-      setError(err?.message || "Network error. Please check your connection.");
+      setError(err?.message || "Network error. Please try again.");
       setLoading(false);
     }
   };
