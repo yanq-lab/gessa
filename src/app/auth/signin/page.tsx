@@ -13,14 +13,34 @@ export default function SignInPage() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [debugInfo, setDebugInfo] = useState("");
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
+    setDebugInfo("Starting sign in...");
     setLoading(true);
     
     try {
-      const { data, error: signinError } = await supabase.auth.signInWithPassword({ email, password });
+      // Check Supabase client is initialized
+      if (!supabase) {
+        setError("Supabase client not initialized");
+        setDebugInfo("Error: Supabase client is null");
+        setLoading(false);
+        return;
+      }
+
+      setDebugInfo("Calling supabase.auth.signInWithPassword...");
+      
+      // Add timeout wrapper
+      const signInPromise = supabase.auth.signInWithPassword({ email, password });
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error("Request timeout - please check your internet connection")), 15000)
+      );
+      
+      const { data, error: signinError } = await Promise.race([signInPromise, timeoutPromise]) as any;
+      
+      setDebugInfo(`Response received. Error: ${signinError?.message || 'none'}`);
       
       if (signinError) {
         setError(signinError.message);
@@ -28,21 +48,24 @@ export default function SignInPage() {
         return;
       }
       
-      if (!data.user) {
-        setError("Login failed. Please try again.");
+      if (!data?.user) {
+        setError("Login failed. No user data returned.");
+        setDebugInfo("Error: No user in response data");
         setLoading(false);
         return;
       }
       
+      setDebugInfo(`Success! User: ${data.user.email}. Redirecting...`);
       toast.success("Signed in successfully!");
       
-      // Use window.location for static export
+      // Small delay to show success message
       setTimeout(() => {
         window.location.href = "/dashboard";
-      }, 100);
+      }, 500);
     } catch (err: any) {
       console.error("Sign in error:", err);
       setError(err?.message || "Network error. Please try again.");
+      setDebugInfo(`Exception: ${err?.message || 'unknown'}`);
       setLoading(false);
     }
   };
@@ -57,22 +80,51 @@ export default function SignInPage() {
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="space-y-2">
               <Label htmlFor="email" className="text-stone-700">Email</Label>
-              <Input id="email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required className="border-stone-200 focus-visible:ring-stone-400" />
+              <Input 
+                id="email" 
+                type="email" 
+                value={email} 
+                onChange={(e) => setEmail(e.target.value)} 
+                required 
+                className="border-stone-200 focus-visible:ring-stone-400" 
+              />
             </div>
             <div className="space-y-2">
               <div className="flex items-center justify-between">
                 <Label htmlFor="password" className="text-stone-700">Password</Label>
                 <Link href="/auth/forgot-password" className="text-xs text-stone-500 hover:text-stone-700 underline underline-offset-2">Forgot password?</Link>
               </div>
-              <Input id="password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} required className="border-stone-200 focus-visible:ring-stone-400" />
+              <Input 
+                id="password" 
+                type="password" 
+                value={password} 
+                onChange={(e) => setPassword(e.target.value)} 
+                required 
+                className="border-stone-200 focus-visible:ring-stone-400" 
+              />
             </div>
-            {error && <p className="text-sm text-red-600">{error}</p>}
-            <Button type="submit" className="w-full bg-stone-900 text-stone-50 hover:bg-stone-800" disabled={loading}>
+            {error && (
+              <div className="rounded-sm bg-red-50 p-3 text-sm text-red-600">
+                {error}
+              </div>
+            )}
+            {debugInfo && (
+              <div className="text-xs text-stone-400 font-mono break-all">
+                {debugInfo}
+              </div>
+            )}
+            
+            <Button 
+              type="submit" 
+              className="w-full bg-stone-900 text-stone-50 hover:bg-stone-800" 
+              disabled={loading}
+            >
               {loading ? "Signing in..." : "Sign in"}
             </Button>
           </form>
           <p className="mt-4 text-center text-sm text-stone-600">
-            Don&apos;t have an account? <Link href="/auth/register" className="text-stone-900 underline underline-offset-4">Get started</Link>
+            Don&apos;t have an account?{" "}
+            <Link href="/auth/register" className="text-stone-900 underline underline-offset-4">Get started</Link>
           </p>
         </CardContent>
       </Card>
