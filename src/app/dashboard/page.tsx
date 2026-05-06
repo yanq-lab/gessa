@@ -6,10 +6,11 @@ import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Upload, ImageIcon, Loader2, ExternalLink, Copy, Gift, Key, CreditCard, BarChart3, Trash2, X } from "lucide-react";
+import { Upload, ImageIcon, ExternalLink, Copy, Gift, Key, CreditCard, BarChart3, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
+import { DashboardSkeleton } from "@/components/loading-skeletons";
 
-interface Artwork { id: string; title: string; year: string | null; medium: string | null; status: string; publishedImageUrl: string | null; originalImageUrl: string | null; }
+interface Artwork { id: string; title: string; year: string | null; medium: string | null; status: string; publishedImageUrl: string | null; originalImageUrl: string | null; createdAt: string | null; }
 interface Profile { id: string; slug: string | null; displayName: string | null; referralCode: string | null; transformationCredits: number; }
 interface Subscription { id: string; status: string; tier: string; currentPeriodStart: string; currentPeriodEnd: string; }
 interface TierLimit { tier: string; name: string; monthlyTransformations: number; customDomains: boolean; apiAccess: boolean; priceMonthlyCents: number; }
@@ -31,6 +32,11 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [deleting, setDeleting] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [sortBy, setSortBy] = useState<string>("newest");
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 12;
 
   const loadAll = useCallback(async () => {
     const { data: { session } } = await supabase.auth.getSession();
@@ -40,7 +46,7 @@ export default function DashboardPage() {
     const { data: pf } = await supabase.from("ArtistProfile").select("*").eq("userId", uid).single();
     setProfile(pf);
 
-    const { data: aw } = await supabase.from("Artwork").select("id, title, year, medium, status, publishedImageUrl, originalImageUrl").eq("artistProfileId", pf?.id).order("createdAt", { ascending: false });
+    const { data: aw } = await supabase.from("Artwork").select("id, title, year, medium, status, publishedImageUrl, originalImageUrl, createdAt").eq("artistProfileId", pf?.id).order("createdAt", { ascending: false });
     setArtworks(aw ?? []);
 
     const { data: sub } = await supabase.from("Subscription").select("*").eq("userId", uid).order("createdAt", { ascending: false }).limit(1).single();
@@ -90,7 +96,7 @@ export default function DashboardPage() {
 
   const copyReferralLink = () => {
     if (!profile?.referralCode) return;
-    navigator.clipboard.writeText("https://gessa.art/signup?ref=" + profile.referralCode).then(() => toast.success("Referral link copied"));
+    navigator.clipboard.writeText("https://gessa.art/auth/register?ref=" + profile.referralCode).then(() => toast.success("Referral link copied"));
   };
 
   const toggleSelect = (artworkId: string) => {
@@ -135,9 +141,34 @@ export default function DashboardPage() {
     loadAll();
   };
 
-  if (loading) return <div className="mx-auto flex w-full max-w-6xl items-center justify-center px-4 py-24"><Loader2 className="h-6 w-6 animate-spin text-stone-400" /></div>;
+  if (loading) return <DashboardSkeleton />;
 
   const currentTier = tierLimits.find(t => t.tier === (subscription?.tier || "free")) || tierLimits[0];
+
+  // Filter and sort artworks
+  const filteredArtworks = artworks
+    .filter(artwork => {
+      if (statusFilter !== "all" && artwork.status !== statusFilter) return false;
+      if (searchQuery) {
+        const query = searchQuery.toLowerCase();
+        return artwork.title.toLowerCase().includes(query) ||
+               (artwork.year?.toLowerCase().includes(query) ?? false) ||
+               (artwork.medium?.toLowerCase().includes(query) ?? false);
+      }
+      return true;
+    })
+    .sort((a, b) => {
+      switch (sortBy) {
+        case "newest": return new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime();
+        case "oldest": return new Date(a.createdAt || 0).getTime() - new Date(b.createdAt || 0).getTime();
+        case "name": return a.title.localeCompare(b.title);
+        default: return 0;
+      }
+    });
+
+  const totalPages = Math.ceil(filteredArtworks.length / itemsPerPage);
+  const paginatedArtworks = filteredArtworks.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
+
   const tabs: { id: Tab; label: string; icon: React.ElementType }[] = [
     { id: "artworks", label: "Artworks", icon: ImageIcon },
     { id: "subscription", label: "Subscription", icon: CreditCard },
@@ -168,6 +199,42 @@ export default function DashboardPage() {
         </div>
 
         {artworks.length > 0 && (
+          <div className="mb-4 flex flex-wrap items-center gap-3">
+            <input
+              type="text"
+              placeholder="Search artworks..."
+              value={searchQuery}
+              onChange={(e) => { setSearchQuery(e.target.value); setCurrentPage(1); }}
+              className="h-9 rounded-md border border-stone-200 bg-white px-3 py-1 text-sm text-stone-700 placeholder:text-stone-400 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-stone-400"
+            />
+            <select
+              value={statusFilter}
+              onChange={(e) => { setStatusFilter(e.target.value); setCurrentPage(1); }}
+              className="h-9 rounded-md border border-stone-200 bg-white px-3 py-1 text-sm text-stone-700"
+            >
+              <option value="all">All statuses</option>
+              <option value="uploaded">Uploaded</option>
+              <option value="processing">Processing</option>
+              <option value="ready">Ready</option>
+              <option value="published">Published</option>
+              <option value="draft">Draft</option>
+            </select>
+            
+            <select
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value)}
+              className="h-9 rounded-md border border-stone-200 bg-white px-3 py-1 text-sm text-stone-700"
+            >
+              <option value="newest">Newest first</option>
+              <option value="oldest">Oldest first</option>
+              <option value="name">Name (A-Z)</option>
+            </select>
+            
+            <span className="text-xs text-stone-500">{filteredArtworks.length} artwork{filteredArtworks.length !== 1 ? "s" : ""}</span>
+          </div>
+        )}
+
+        {artworks.length > 0 && (
           <div className="mb-3 flex items-center gap-3">
             <label className="flex items-center gap-2 text-sm text-stone-500 cursor-pointer select-none">
               <input type="checkbox" checked={selectedIds.size === artworks.length && artworks.length > 0} onChange={selectAll} className="h-4 w-4 rounded border-stone-300 text-stone-900 focus:ring-stone-400" />
@@ -188,24 +255,35 @@ export default function DashboardPage() {
         <Card className="border-stone-200 shadow-none"><CardContent className="pt-6">
           {artworks.length === 0 ? (
             <div className="flex flex-col items-center py-12 text-center"><ImageIcon className="h-8 w-8 text-stone-400" strokeWidth={1.5} /><p className="mt-3 text-sm text-stone-600">No artworks yet.</p><Button asChild variant="link" className="mt-2 text-stone-900"><Link href="/artwork/upload">Upload your first artwork</Link></Button></div>
+          ) : filteredArtworks.length === 0 ? (
+            <div className="flex flex-col items-center py-12 text-center"><p className="text-sm text-stone-600">No artworks match your filters.</p><Button variant="link" className="mt-2 text-stone-900" onClick={() => { setSearchQuery(""); setStatusFilter("all"); }}>Clear filters</Button></div>
           ) : (
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-              {artworks.slice(0, 8).map(artwork => (
-                <div key={artwork.id} className="group flex flex-col gap-2 relative">
-                  <div className="relative aspect-[3/4] overflow-hidden rounded-sm border border-stone-200 bg-stone-100">
-                    <Link href={"/artwork/review?id=" + artwork.id}>
-                      {artwork.publishedImageUrl || artwork.originalImageUrl ? (
-                        <img src={artwork.publishedImageUrl || artwork.originalImageUrl || ""} alt={artwork.title} className="h-full w-full object-cover transition-transform group-hover:scale-[1.02]" />
-                      ) : (<div className="flex h-full items-center justify-center"><ImageIcon className="h-6 w-6 text-stone-300" strokeWidth={1.5} /></div>)}
-                    </Link>
-                    <div className="absolute left-2 top-2"><input type="checkbox" checked={selectedIds.has(artwork.id)} onChange={() => toggleSelect(artwork.id)} className="h-4 w-4 rounded border-stone-300 text-stone-900 focus:ring-stone-400 bg-white/80" /></div>
-                    <div className="absolute right-2 top-2"><Badge variant="secondary" className="bg-white/90 text-[10px] font-normal text-stone-700">{artwork.status}</Badge></div>
-                    <button onClick={() => deleteArtworks([artwork.id])} disabled={deleting} className="absolute right-2 bottom-2 rounded-full bg-white/90 p-1.5 text-stone-400 hover:text-red-600 opacity-0 group-hover:opacity-100 transition-opacity" title="Delete"><Trash2 className="h-3.5 w-3.5" /></button>
+            <>
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                {paginatedArtworks.map(artwork => (
+                  <div key={artwork.id} className="group flex flex-col gap-2 relative">
+                    <div className="relative aspect-[3/4] overflow-hidden rounded-sm border border-stone-200 bg-stone-100">
+                      <Link href={"/artwork/review?id=" + artwork.id}>
+                        {artwork.publishedImageUrl || artwork.originalImageUrl ? (
+                          <img src={artwork.publishedImageUrl || artwork.originalImageUrl || ""} alt={artwork.title} className="h-full w-full object-cover transition-transform group-hover:scale-[1.02]" />
+                        ) : (<div className="flex h-full items-center justify-center"><ImageIcon className="h-6 w-6 text-stone-300" strokeWidth={1.5} /></div>)}
+                      </Link>
+                      <div className="absolute left-2 top-2"><input type="checkbox" checked={selectedIds.has(artwork.id)} onChange={() => toggleSelect(artwork.id)} className="h-4 w-4 rounded border-stone-300 text-stone-900 focus:ring-stone-400 bg-white/80" /></div>
+                      <div className="absolute right-2 top-2"><Badge variant="secondary" className="bg-white/90 text-[10px] font-normal text-stone-700">{artwork.status}</Badge></div>
+                      <button onClick={() => deleteArtworks([artwork.id])} disabled={deleting} className="absolute right-2 bottom-2 rounded-full bg-white/90 p-1.5 text-stone-400 hover:text-red-600 opacity-0 group-hover:opacity-100 transition-opacity" title="Delete"><Trash2 className="h-3.5 w-3.5" /></button>
+                    </div>
+                    <Link href={"/artwork/review?id=" + artwork.id}><p className="text-sm font-medium text-stone-900">{artwork.title}</p><p className="text-xs text-stone-500">{artwork.year} {artwork.medium && "· " + artwork.medium}</p></Link>
                   </div>
-                  <Link href={"/artwork/review?id=" + artwork.id}><p className="text-sm font-medium text-stone-900">{artwork.title}</p><p className="text-xs text-stone-500">{artwork.year} {artwork.medium && "· " + artwork.medium}</p></Link>
+                ))}
+              </div>
+              {totalPages > 1 && (
+                <div className="mt-6 flex items-center justify-center gap-2">
+                  <Button variant="outline" size="sm" onClick={() => setCurrentPage(p => Math.max(1, p - 1))} disabled={currentPage === 1} className="border-stone-200 text-xs h-8">Previous</Button>
+                  <span className="text-sm text-stone-600">Page {currentPage} of {totalPages}</span>
+                  <Button variant="outline" size="sm" onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))} disabled={currentPage === totalPages} className="border-stone-200 text-xs h-8">Next</Button>
                 </div>
-              ))}
-            </div>
+              )}
+            </>
           )}
         </CardContent></Card>
       </>)}
@@ -225,6 +303,25 @@ export default function DashboardPage() {
             <div className="mt-4 h-2 w-full rounded-full bg-stone-100">
               <div className="h-2 rounded-full bg-stone-900" style={{ width: Math.min(100, (usage.used / (currentTier?.monthlyTransformations || 3)) * 100) + "%" }} />
             </div>
+            {usage.used >= (currentTier?.monthlyTransformations || 3) && (
+              <div className="mt-4 rounded-sm bg-amber-50 border border-amber-200 p-3">
+                <p className="text-sm text-amber-800">
+                  You have used all your monthly transformations. 
+                  {currentTier?.tier === "free" ? (
+                    <Link href="/pricing" className="underline font-medium">Upgrade your plan</Link>
+                  ) : (
+                    <span>Extra transformations are available at $0.80 each.</span>
+                  )}
+                </p>
+              </div>
+            )}
+            {usage.used >= (currentTier?.monthlyTransformations || 3) * 0.8 && usage.used < (currentTier?.monthlyTransformations || 3) && (
+              <div className="mt-4 rounded-sm bg-blue-50 border border-blue-200 p-3">
+                <p className="text-sm text-blue-800">
+                  You have used {Math.round((usage.used / (currentTier?.monthlyTransformations || 3)) * 100)}% of your monthly quota.
+                </p>
+              </div>
+            )}
           </CardContent></Card>
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             {tierLimits.filter(t => t.tier !== "free").map(tier => (

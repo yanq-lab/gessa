@@ -1,17 +1,18 @@
 "use client";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { supabase } from "@/lib/supabase";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { Menu, Upload, LayoutDashboard, Settings, LogOut } from "lucide-react";
+import { Menu, Upload, LayoutDashboard, Settings, LogOut, X } from "lucide-react";
 
 export function Navbar() {
   const router = useRouter();
   const [user, setUser] = useState<any>(null);
   const [artistSlug, setArtistSlug] = useState<string | null>(null);
   const [mobileOpen, setMobileOpen] = useState(false);
+  const mobileMenuRef = useRef<HTMLDivElement>(null);
 
   const refresh = useCallback(async () => {
     const { data } = await supabase.auth.getUser();
@@ -23,6 +24,18 @@ export function Navbar() {
   }, []);
 
   useEffect(() => { refresh(); const { data: listener } = supabase.auth.onAuthStateChange(() => refresh()); return () => listener.subscription.unsubscribe(); }, [refresh]);
+
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (mobileMenuRef.current && !mobileMenuRef.current.contains(event.target as Node)) {
+        setMobileOpen(false);
+      }
+    }
+    if (mobileOpen) {
+      document.addEventListener("mousedown", handleClickOutside);
+      return () => document.removeEventListener("mousedown", handleClickOutside);
+    }
+  }, [mobileOpen]);
 
   const handleSignOut = async () => { await supabase.auth.signOut(); setUser(null); router.push("/"); };
   const isAuthenticated = !!user;
@@ -56,10 +69,16 @@ export function Navbar() {
             </div>
           )}
         </nav>
-        <button className="md:hidden p-2 text-stone-600 hover:text-stone-900" onClick={() => setMobileOpen(!mobileOpen)}><Menu className="h-5 w-5" /></button>
+        <button 
+          className="md:hidden p-2 text-stone-600 hover:text-stone-900" 
+          onClick={() => setMobileOpen(!mobileOpen)}
+          aria-label="Toggle menu"
+        >
+          {mobileOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+        </button>
       </div>
       {mobileOpen && (
-        <div className="md:hidden border-t border-stone-200 bg-[#fafaf9] px-4 py-4">
+        <div ref={mobileMenuRef} className="md:hidden border-t border-stone-200 bg-[#fafaf9] px-4 py-4 shadow-lg">
           <nav className="flex flex-col gap-3">
             {isAuthenticated ? (
               <>

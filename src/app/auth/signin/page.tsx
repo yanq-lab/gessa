@@ -35,7 +35,13 @@ export default function SignInPage() {
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="space-y-2"><Label htmlFor="email" className="text-stone-700">Email</Label><Input id="email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required className="border-stone-200 focus-visible:ring-stone-400" /></div>
-            <div className="space-y-2"><Label htmlFor="password" className="text-stone-700">Password</Label><Input id="password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} required className="border-stone-200 focus-visible:ring-stone-400" /></div>
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <Label htmlFor="password" className="text-stone-700">Password</Label>
+                <Link href="/auth/forgot-password" className="text-xs text-stone-500 hover:text-stone-700 underline underline-offset-2">Forgot password?</Link>
+              </div>
+              <Input id="password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} required className="border-stone-200 focus-visible:ring-stone-400" />
+            </div>
             {error && <p className="text-sm text-red-600">{error}</p>}
             <Button type="submit" className="w-full bg-stone-900 text-stone-50 hover:bg-stone-800" disabled={loading}>{loading ? "Signing in..." : "Sign in"}</Button>
           </form>

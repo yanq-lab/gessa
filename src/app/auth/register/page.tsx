@@ -15,11 +15,14 @@ function RegisterForm() {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [agreeToTerms, setAgreeToTerms] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault(); setError(""); setLoading(true);
+    e.preventDefault(); setError("");
+    if (!agreeToTerms) { setError("You must agree to the Terms and Privacy Policy"); return; }
+    setLoading(true);
     const { data, error: signUpError } = await supabase.auth.signUp({ email, password, options: { data: { name } } });
     if (signUpError) { setError(signUpError.message); setLoading(false); return; }
     if (data.user) {
@@ -48,6 +51,21 @@ function RegisterForm() {
             <div className="space-y-2"><Label htmlFor="email" className="text-stone-700">Email</Label><Input id="email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required className="border-stone-200 focus-visible:ring-stone-400" /></div>
             <div className="space-y-2"><Label htmlFor="password" className="text-stone-700">Password</Label><Input id="password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} required minLength={6} className="border-stone-200 focus-visible:ring-stone-400" /></div>
             {refCode && <p className="text-sm text-stone-500">Referred by: {refCode}</p>}
+            <div className="flex items-start gap-2">
+              <input
+                type="checkbox"
+                id="terms"
+                checked={agreeToTerms}
+                onChange={(e) => setAgreeToTerms(e.target.checked)}
+                className="mt-0.5 h-4 w-4 rounded border-stone-300 text-stone-900 focus:ring-stone-400"
+              />
+              <label htmlFor="terms" className="text-xs text-stone-600 leading-relaxed">
+                I agree to the{" "}
+                <Link href="/terms" className="text-stone-900 underline underline-offset-2 hover:text-stone-700">Terms of Service</Link>
+                {" "}and{" "}
+                <Link href="/privacy" className="text-stone-900 underline underline-offset-2 hover:text-stone-700">Privacy Policy</Link>
+              </label>
+            </div>
             {error && <p className="text-sm text-red-600">{error}</p>}
             <Button type="submit" className="w-full bg-stone-900 text-stone-50 hover:bg-stone-800" disabled={loading}>{loading ? "Creating account..." : "Create account"}</Button>
           </form>

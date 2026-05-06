@@ -4,8 +4,12 @@ import { useSearchParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 import { Button } from "@/components/ui/button";
-import { ArrowLeft, Loader2, Sparkles, ShieldAlert } from "lucide-react";
+import { ArrowLeft, Sparkles, ShieldAlert, Loader2 } from "lucide-react";
 import { toast } from "sonner";
+import { ArtworkReviewSkeleton } from "@/components/loading-skeletons";
+import { useRestoreProgress } from "@/hooks/use-restore-progress";
+import { RestoreProgressBar } from "@/components/restore-progress-bar";
+import { BeforeAfterSlider } from "@/components/before-after-slider";
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || "https://khqngwvvcoosqgtpmdan.supabase.co";
 
@@ -20,7 +24,6 @@ function ReviewContent() {
   const [artwork, setArtwork] = useState<Artwork | null>(null);
   const [versions, setVersions] = useState<ImageVersion[]>([]);
   const [loading, setLoading] = useState(true);
-  const [restoring, setRestoring] = useState(false);
   const [publishing, setPublishing] = useState(false);
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
   const [selectedVersionId, setSelectedVersionId] = useState<string | null>(null);
@@ -29,6 +32,8 @@ function ReviewContent() {
   const [suitable, setSuitable] = useState(false);
   const [toolOnly, setToolOnly] = useState(false);
   const [mode, setMode] = useState<"faithful" | "gallery">("faithful");
+
+  const { progress, job, isPolling, error: restoreError, startPolling } = useRestoreProgress();
 
   const latestRestored = versions.filter(v => v.type === "restored").sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0];
 
@@ -55,10 +60,17 @@ function ReviewContent() {
 
   useEffect(() => { fetchArtwork(); }, [fetchArtwork]);
 
+  // Auto-refresh when restore completes
+  useEffect(() => {
+    if (job?.status === "ready" && !isPolling) {
+      toast.success("Restoration complete!");
+      fetchArtwork();
+    }
+  }, [job, isPolling, fetchArtwork]);
+
   const handleRestore = async () => {
-    setRestoring(true);
     const { data: { session } } = await supabase.auth.getSession();
-    if (!session) { toast.error("Please sign in"); setRestoring(false); return; }
+    if (!session) { toast.error("Please sign in"); return; }
     try {
       const res = await fetch(`${SUPABASE_URL}/functions/v1/restore-artwork`, {
         method: "POST",
@@ -66,11 +78,17 @@ function ReviewContent() {
         body: JSON.stringify({ artworkId: id, mode }),
       });
       const data = await res.json();
-      if (!data.ok) { toast.error(data.error?.message || "Restore failed"); setRestoring(false); return; }
-      toast.success("Restoration complete");
-      await fetchArtwork();
-    } catch { toast.error("Network error. Please try again."); }
-    setRestoring(false);
+      if (!data.ok) { 
+        toast.error(data.error?.message || "Restore failed"); 
+        return; 
+      }
+      
+      // Start polling for progress
+      startPolling(data.jobId);
+      toast.info("Restoration started. This may take 1-2 minutes.");
+    } catch { 
+      toast.error("Network error. Please try again."); 
+    }
   };
 
   const handleRegenerate = async () => {
@@ -119,8 +137,10 @@ function ReviewContent() {
     router.push("/dashboard");
   };
 
+  const isRestoring = isPolling || job?.status === "queued" || job?.status === "processing";
+
   if (loading) {
-    return <div className="mx-auto flex w-full max-w-6xl items-center justify-center px-4 py-24"><Loader2 className="h-6 w-6 animate-spin text-stone-400" /></div>;
+    return <ArtworkReviewSkeleton />;
   }
   if (!id || !artwork) {
     if (!id) router.push("/dashboard");
@@ -133,7 +153,17 @@ function ReviewContent() {
       <h1 className="mb-2 font-serif text-3xl text-stone-900">Review restoration</h1>
       <p className="mb-8 text-sm text-stone-600">Compare the restored image with your physical artwork before publishing.</p>
 
-      {artwork.status === "uploaded" && !latestRestored && (
+      {isRestoring && (
+        <div className="mb-10">
+          <RestoreProgressBar 
+            progress={progress} 
+            status={job?.status || "queued"} 
+            error={restoreError} 
+          />
+        </div>
+      )}
+
+      {artwork.status === "uploaded" && !latestRestored && !isRestoring && (
         <div className="mb-10 rounded-sm border border-stone-200 bg-stone-50 p-8 text-center">
           <Sparkles className="mx-auto h-10 w-10 text-stone-400" strokeWidth={1.5} />
           <h2 className="mt-4 font-serif text-xl text-stone-900">Ready to restore</h2>
@@ -143,42 +173,30 @@ function ReviewContent() {
               <option value="faithful">Faithful — preserve original</option>
               <option value="gallery">Gallery — clean presentation</option>
             </select>
-            <Button onClick={handleRestore} disabled={restoring} className="bg-stone-900 text-stone-50 hover:bg-stone-800">
-              {restoring ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Restoring...</> : "Restore artwork"}
+            <Button onClick={handleRestore} disabled={isRestoring} className="bg-stone-900 text-stone-50 hover:bg-stone-800">
+              {isRestoring ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Restoring...</> : "Restore artwork"}
             </Button>
           </div>
         </div>
       )}
 
-      {restoring && (
-        <div className="mb-10 rounded-sm border border-stone-200 bg-stone-50 p-8 text-center">
-          <Loader2 className="mx-auto h-8 w-8 animate-spin text-stone-400" />
-          <p className="mt-3 font-serif text-lg text-stone-900">Restoring your artwork image...</p>
-          <p className="mt-1 text-sm text-stone-500">Gessa is creating a faithful digital presentation based on your uploaded photo.</p>
-        </div>
-      )}
-
       {latestRestored && (
         <>
-          <div className="mb-10 grid gap-6 sm:grid-cols-2">
-            <div className="flex flex-col">
-              <div className="relative aspect-[4/3] overflow-hidden rounded-sm border border-stone-200 bg-stone-100">
-                {artwork.originalImageUrl && <img src={artwork.originalImageUrl} alt="Original" className="h-full w-full object-contain" />}
-                {selectedVersionType === "original" && <div className="absolute left-2 top-2 rounded-sm bg-stone-900 px-2 py-0.5 text-xs text-stone-50">Selected</div>}
-              </div>
-              <p className="mt-3 text-center text-xs uppercase tracking-widest text-stone-500">Original Photo</p>
-            </div>
-            <div className="flex flex-col">
-              <div className="relative aspect-[4/3] overflow-hidden rounded-sm border border-stone-200 bg-stone-100">
-                <img src={latestRestored.url} alt="Restored" className="h-full w-full object-contain" />
-                {selectedVersionType === "restored" && <div className="absolute left-2 top-2 rounded-sm bg-stone-900 px-2 py-0.5 text-xs text-stone-50">Selected</div>}
-              </div>
-              <p className="mt-3 text-center text-xs uppercase tracking-widest text-stone-500">Gessa Restored</p>
-            </div>
+          <div className="mb-10">
+            <BeforeAfterSlider
+              beforeImage={artwork.originalImageUrl || ""}
+              afterImage={latestRestored.url}
+              beforeLabel="Original Photo"
+              afterLabel="Gessa Restored"
+              className="aspect-[4/3] w-full max-w-3xl mx-auto"
+            />
+            <p className="mt-3 text-center text-xs text-stone-500">
+              Drag the slider to compare before and after
+            </p>
           </div>
 
           <div className="mb-10 flex flex-wrap items-center justify-center gap-3">
-            <Button variant="outline" onClick={handleRegenerate} className="border-stone-200 text-stone-700 hover:bg-stone-100">Regenerate</Button>
+            <Button variant="outline" onClick={handleRegenerate} disabled={isRestoring} className="border-stone-200 text-stone-700 hover:bg-stone-100">Regenerate</Button>
             <Button variant="outline" onClick={handleKeepOriginal} className={`border-stone-200 hover:bg-stone-100 ${selectedVersionType === "original" ? "bg-stone-100 text-stone-900" : "text-stone-700"}`}>Keep original</Button>
             <Button variant="outline" onClick={handleUseRestored} className={`border-stone-200 hover:bg-stone-100 ${selectedVersionType === "restored" ? "bg-stone-100 text-stone-900" : "text-stone-700"}`}>Use restored version</Button>
             <Button variant="outline" onClick={handleSaveDraft} className="border-stone-200 text-stone-700 hover:bg-stone-100">Save draft</Button>
@@ -216,5 +234,5 @@ function ReviewContent() {
 }
 
 export default function ArtworkReviewPage() {
-  return <Suspense fallback={<div className="mx-auto flex w-full max-w-6xl items-center justify-center px-4 py-24"><Loader2 className="h-6 w-6 animate-spin text-stone-400" /></div>}><ReviewContent /></Suspense>;
+  return <Suspense fallback={<ArtworkReviewSkeleton />}><ReviewContent /></Suspense>;
 }

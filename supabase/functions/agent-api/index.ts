@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
+import { checkRateLimit, getClientIP, rateLimitResponse } from "../_shared/rate-limit.ts";
 
 const supabase = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
 const WORKER_URL = "https://dev.gessa.art";
@@ -40,6 +41,20 @@ serve(async (req: Request) => {
   if (keyData.expiresAt && new Date(keyData.expiresAt) < new Date()) return jsonResponse({ ok: false, error: "API key expired" }, 401);
 
   const userId = keyData.userId;
+
+  // Rate limit: 30 requests per minute per API key
+  const keyLimit = checkRateLimit(`apikey:${apiKey}`, 30, 60000);
+  if (!keyLimit.allowed) {
+    return rateLimitResponse(keyLimit.retryAfter);
+  }
+
+  // Rate limit: 10 requests per minute per IP
+  const clientIP = getClientIP(req);
+  const ipLimit = checkRateLimit(`ip:${clientIP}`, 10, 60000);
+  if (!ipLimit.allowed) {
+    return rateLimitResponse(ipLimit.retryAfter);
+  }
+
   const { data: sub } = await supabase.from("Subscription").select("status, tier").eq("userId", userId).order("createdAt", { ascending: false }).limit(1).single();
   if (!sub || !["active", "trialing"].includes(sub.status)) return jsonResponse({ ok: false, error: "No active subscription" }, 402);
   const { data: tier } = await supabase.from("TierLimit").select("apiAccess").eq("tier", sub.tier).single();

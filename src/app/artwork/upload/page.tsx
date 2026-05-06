@@ -32,11 +32,10 @@ export default function UploadArtworkPage() {
   const [uploadingImage, setUploadingImage] = useState(false);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [imageUrl, setImageUrl] = useState<string>("");
+  const [isDragging, setIsDragging] = useState(false);
   const [form, setForm] = useState({ title: "", year: "", medium: "", dimensions: "", description: "", price: "", availabilityStatus: "available" as "available" | "sold" | "not for sale" });
 
-  const handleFileChange = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+  const handleFile = useCallback(async (file: File) => {
     if (!file.type.startsWith("image/")) { toast.error("Only image files are allowed"); return; }
     if (file.size > 10 * 1024 * 1024) { toast.error("File size must be less than 10MB"); return; }
     const objectUrl = URL.createObjectURL(file);
@@ -49,6 +48,33 @@ export default function UploadArtworkPage() {
     else { toast.error("Upload failed"); setPreviewUrl(null); }
     setUploadingImage(false);
   }, []);
+
+  const handleFileChange = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    await handleFile(file);
+  }, [handleFile]);
+
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(true);
+  }, []);
+
+  const handleDragLeave = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+  }, []);
+
+  const handleDrop = useCallback(async (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+    const file = e.dataTransfer.files?.[0];
+    if (!file) return;
+    await handleFile(file);
+  }, [handleFile]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -90,10 +116,23 @@ export default function UploadArtworkPage() {
               </div>
             ) : (
               <div className="mt-2">
-                <label htmlFor="artwork-image" className="flex cursor-pointer flex-col items-center justify-center rounded-sm border border-dashed border-stone-300 bg-stone-50 p-8 hover:bg-stone-100 transition-colors">
+                <label
+                  htmlFor="artwork-image"
+                  className={`flex cursor-pointer flex-col items-center justify-center rounded-sm border-2 border-dashed p-8 transition-colors ${
+                    isDragging 
+                      ? "border-stone-900 bg-stone-100" 
+                      : "border-stone-300 bg-stone-50 hover:bg-stone-100"
+                  }`}
+                  onDragOver={handleDragOver}
+                  onDragLeave={handleDragLeave}
+                  onDrop={handleDrop}
+                >
                   <ImageIcon className="h-8 w-8 text-stone-400" strokeWidth={1.5} />
-                  <p className="mt-2 text-sm text-stone-600">Click to upload a photo</p>
+                  <p className="mt-2 text-sm text-stone-600">
+                    {isDragging ? "Drop your image here" : "Click or drag to upload a photo"}
+                  </p>
                   <p className="text-xs text-stone-500">JPG, PNG, WebP up to 10MB</p>
+                  <p className="mt-1 text-xs text-stone-400">For best results, use a high-resolution scan or photo in natural light</p>
                   <input id="artwork-image" type="file" accept="image/png,image/jpeg,image/webp" onChange={handleFileChange} className="hidden" />
                 </label>
               </div>

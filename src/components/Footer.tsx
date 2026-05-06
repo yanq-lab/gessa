@@ -9,6 +9,8 @@ export function Footer() {
           <div className="flex gap-6">
             <Link href="/" className="text-xs text-stone-500 hover:text-stone-900 transition-colors">Home</Link>
             <Link href="/auth/signin" className="text-xs text-stone-500 hover:text-stone-900 transition-colors">Sign in</Link>
+            <Link href="/terms" className="text-xs text-stone-500 hover:text-stone-900 transition-colors">Terms</Link>
+            <Link href="/privacy" className="text-xs text-stone-500 hover:text-stone-900 transition-colors">Privacy</Link>
           </div>
         </div>
       </div>

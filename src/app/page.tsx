@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { ArrowRight, Image, Sparkles, Frame, Eye, Camera, Palette } from "lucide-react";
+import { BeforeAfterSlider } from "@/components/before-after-slider";
 
 export default function HomePage() {
   return (
@@ -43,19 +44,19 @@ export default function HomePage() {
 
       <section className="w-full border-t border-stone-200 bg-white">
         <div className="mx-auto max-w-6xl px-4 py-20 sm:px-6">
-          <p className="mb-12 text-center text-sm uppercase tracking-widest text-stone-500">Before & After</p>
-          <div className="grid gap-8 sm:grid-cols-2">
-            <div className="flex flex-col items-center">
-              <div className="relative aspect-[4/3] w-full max-w-md overflow-hidden rounded-sm border border-stone-200 bg-stone-100">
-                <div className="absolute inset-0 flex items-center justify-center"><div className="text-center"><Camera className="mx-auto h-8 w-8 text-stone-400" strokeWidth={1.5} /><p className="mt-2 text-sm text-stone-500">Original photo</p><p className="text-xs text-stone-400">Uneven lighting, color cast, slight angle</p></div></div>
-              </div>
-              <p className="mt-4 text-xs uppercase tracking-widest text-stone-500">Before</p>
-            </div>
-            <div className="flex flex-col items-center">
-              <div className="relative aspect-[4/3] w-full max-w-md overflow-hidden rounded-sm border border-stone-200 bg-stone-100">
-                <div className="absolute inset-0 flex items-center justify-center"><div className="text-center"><Sparkles className="mx-auto h-8 w-8 text-stone-400" strokeWidth={1.5} /><p className="mt-2 text-sm text-stone-500">Restored artwork</p><p className="text-xs text-stone-400">Color corrected, perspective fixed, clean presentation</p></div></div>
-              </div>
-              <p className="mt-4 text-xs uppercase tracking-widest text-stone-500">After</p>
+          <p className="mb-4 text-center text-sm uppercase tracking-widest text-stone-500">Before & After</p>
+          <p className="mb-12 text-center text-sm text-stone-600">Drag to compare. See how Gessa transforms imperfect photos into professional presentations.</p>
+          <div className="mx-auto max-w-3xl space-y-8">
+            <BeforeAfterSlider
+              beforeImage="/examples/before-1.jpg"
+              afterImage="/examples/after-1.jpg"
+              beforeLabel="Original photo"
+              afterLabel="Restored"
+              className="aspect-[4/3] w-full"
+            />
+            <div className="text-center">
+              <p className="text-sm font-medium text-stone-900">Oil on canvas, photographed in natural light</p>
+              <p className="text-xs text-stone-500">Perspective corrected, color balanced, background cleaned</p>
             </div>
           </div>
         </div>

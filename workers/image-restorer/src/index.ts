@@ -8,10 +8,40 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "Authorization, Content-Type",
 };
 
+// Simple in-memory rate limiter (per-instance, not distributed)
+const rateLimitMap = new Map<string, { count: number; resetTime: number }>();
+
+function checkRateLimit(ip: string, maxRequests: number, windowMs: number = 60000) {
+  const now = Date.now();
+  const entry = rateLimitMap.get(ip);
+
+  if (!entry || now > entry.resetTime) {
+    rateLimitMap.set(ip, { count: 1, resetTime: now + windowMs });
+    return { allowed: true, retryAfter: 0 };
+  }
+
+  if (entry.count >= maxRequests) {
+    return { allowed: false, retryAfter: Math.ceil((entry.resetTime - now) / 1000) };
+  }
+
+  entry.count++;
+  return { allowed: true, retryAfter: 0 };
+}
+
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     if (request.method === "OPTIONS") {
       return new Response(null, { headers: corsHeaders });
+    }
+
+    // Rate limit: 10 requests per minute per IP
+    const clientIP = request.headers.get("cf-connecting-ip") || "unknown";
+    const limit = checkRateLimit(clientIP, 10, 60000);
+    if (!limit.allowed) {
+      return new Response(JSON.stringify({ error: "Rate limit exceeded. Try again later." }), {
+        status: 429,
+        headers: { ...corsHeaders, "Content-Type": "application/json", "Retry-After": String(limit.retryAfter) },
+      });
     }
 
     if (request.method !== "POST") {

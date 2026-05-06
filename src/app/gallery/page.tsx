@@ -2,6 +2,7 @@
 import { useState, useEffect } from "react";
 import { supabase } from "@/lib/supabase";
 import Link from "next/link";
+import { GallerySkeleton } from "@/components/loading-skeletons";
 
 interface Artwork { id: string; title: string; year: string | null; medium: string | null; publishedImageUrl: string | null; artistProfileId: string; }
 
@@ -16,7 +17,7 @@ export default function GalleryPage() {
     });
   }, []);
 
-  if (loading) return <div className="mx-auto flex w-full max-w-6xl items-center justify-center px-4 py-24"><div className="h-6 w-6 animate-spin rounded-full border-2 border-stone-400 border-t-transparent" /></div>;
+  if (loading) return <GallerySkeleton />;
 
   return (
     <div className="mx-auto w-full max-w-6xl px-4 py-12 sm:px-6">
@@ -25,7 +26,7 @@ export default function GalleryPage() {
       {artworks.length === 0 ? (
         <div className="flex flex-col items-center py-24 text-center">
           <p className="text-sm text-stone-500">No published artworks yet.</p>
-          <Link href="/upload" className="mt-4 text-sm text-stone-900 underline underline-offset-4">Upload your first artwork</Link>
+          <Link href="/artwork/upload" className="mt-4 text-sm text-stone-900 underline underline-offset-4">Upload your first artwork</Link>
         </div>
       ) : (
         <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
