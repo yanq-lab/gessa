@@ -20,10 +20,10 @@ export default function ProfileSettingsPage() {
   const [form, setForm] = useState({ displayName: "", slug: "", bio: "", location: "", websiteUrl: "", instagramUrl: "" });
 
   const loadProfile = useCallback(async () => {
-    const { data: userData } = await supabase.auth.getUser();
-    if (!userData.user) { router.push("/auth/signin"); return; }
-    setUser(userData.user);
-    const { data: profile } = await supabase.from("ArtistProfile").select("id, displayName, slug, bio, location, websiteUrl, instagramUrl").eq("userId", userData.user.id).single();
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session?.user) { window.location.href = "/auth/signin"; return; }
+    setUser(session.user);
+    const { data: profile } = await supabase.from("ArtistProfile").select("id, displayName, slug, bio, location, websiteUrl, instagramUrl").eq("userId", session.user.id).single();
     if (profile) {
       setProfileId(profile.id);
       setForm({ displayName: profile.displayName || "", slug: profile.slug || "", bio: profile.bio || "", location: profile.location || "", websiteUrl: profile.websiteUrl || "", instagramUrl: profile.instagramUrl || "" });

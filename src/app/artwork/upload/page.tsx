@@ -81,22 +81,48 @@ export default function UploadArtworkPage() {
     if (!imageUrl) { toast.error("Please upload an image first"); return; }
     if (!form.title) { toast.error("Title is required"); return; }
     setLoading(true);
-    const { data: userData } = await supabase.auth.getUser();
-    if (!userData.user) { toast.error("Please sign in first"); setLoading(false); return; }
-    const { data: profile } = await supabase.from("ArtistProfile").select("id").eq("userId", userData.user.id).single();
-    if (!profile) { toast.error("Please set up your artist profile first"); setLoading(false); return; }
-    const slug = form.title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "") + "-" + Date.now();
-    const { data, error } = await supabase.from("Artwork").insert({
-      artistProfileId: profile.id, title: form.title, slug, year: form.year || null, medium: form.medium || null,
-      dimensions: form.dimensions || null, description: form.description || null, price: form.price || null,
-      availabilityStatus: form.availabilityStatus, originalImageUrl: imageUrl, status: "uploaded",
-    }).select("id").single();
-    if (error || !data) { toast.error(error?.message || "Failed to create artwork"); setLoading(false); return; }
-    await supabase.from("ArtworkImageVersion").insert({
-      artworkId: data.id, type: "original", url: imageUrl, metadata: {},
-    });
-    toast.success("Artwork uploaded");
-    router.push(`/artwork/review?id=${data.id}`);
+    
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.user) { 
+        toast.error("Please sign in first"); 
+        setLoading(false); 
+        window.location.href = "/auth/signin";
+        return; 
+      }
+      
+      const { data: profile } = await supabase.from("ArtistProfile").select("id").eq("userId", session.user.id).single();
+      if (!profile) { 
+        toast.error("Please set up your artist profile first"); 
+        setLoading(false); 
+        return; 
+      }
+      
+      const slug = form.title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "") + "-" + Date.now();
+      const { data, error } = await supabase.from("Artwork").insert({
+        artistProfileId: profile.id, title: form.title, slug, year: form.year || null, medium: form.medium || null,
+        dimensions: form.dimensions || null, description: form.description || null, price: form.price || null,
+        availabilityStatus: form.availabilityStatus, originalImageUrl: imageUrl, status: "uploaded",
+      }).select("id").single();
+      
+      if (error || !data) { 
+        toast.error(error?.message || "Failed to create artwork"); 
+        setLoading(false); 
+        return; 
+      }
+      
+      await supabase.from("ArtworkImageVersion").insert({
+        artworkId: data.id, type: "original", url: imageUrl, metadata: {},
+      });
+      
+      toast.success("Artwork uploaded");
+      // Use window.location for reliable navigation in static export
+      window.location.href = `/artwork/review?id=${data.id}`;
+    } catch (err: any) {
+      console.error("Upload error:", err);
+      toast.error(err?.message || "Failed to upload artwork");
+      setLoading(false);
+    }
   };
 
   const clearImage = () => { setPreviewUrl(null); setImageUrl(""); };

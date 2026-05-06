@@ -1,6 +1,5 @@
 "use client";
 import { useState, useEffect, useCallback } from "react";
-import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
@@ -20,7 +19,6 @@ interface ReferralRow { id: string; refereeId: string; status: string; transform
 type Tab = "artworks" | "subscription" | "apikeys" | "referrals";
 
 export default function DashboardPage() {
-  const router = useRouter();
   const [activeTab, setActiveTab] = useState<Tab>("artworks");
   const [profile, setProfile] = useState<Profile | null>(null);
   const [artworks, setArtworks] = useState<Artwork[]>([]);
@@ -37,47 +35,83 @@ export default function DashboardPage() {
   const [sortBy, setSortBy] = useState<string>("newest");
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 12;
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
+
+  // Check auth with retry
+  const checkAuth = useCallback(async (retryCount = 0) => {
+    const { data: { session } } = await supabase.auth.getSession();
+    
+    if (session?.user) {
+      setIsAuthenticated(true);
+      return session.user.id;
+    }
+    
+    if (retryCount < 3) {
+      // Retry after a short delay - Supabase may still be initializing from localStorage
+      setTimeout(() => checkAuth(retryCount + 1), 200);
+      return null;
+    }
+    
+    // No session after retries - redirect to login
+    setIsAuthenticated(false);
+    window.location.href = "/auth/signin";
+    return null;
+  }, []);
 
   const loadAll = useCallback(async () => {
-    const { data: { session } } = await supabase.auth.getSession();
-    if (!session?.user) { router.push("/auth/signin"); return; }
-    const uid = session.user.id;
+    const uid = await checkAuth();
+    if (!uid) return; // Still checking or redirecting
 
-    const { data: pf } = await supabase.from("ArtistProfile").select("*").eq("userId", uid).single();
-    setProfile(pf);
+    try {
+      const { data: pf } = await supabase.from("ArtistProfile").select("*").eq("userId", uid).single();
+      setProfile(pf);
 
-    const { data: aw } = await supabase.from("Artwork").select("id, title, year, medium, status, publishedImageUrl, originalImageUrl, createdAt").eq("artistProfileId", pf?.id).order("createdAt", { ascending: false });
-    setArtworks(aw ?? []);
+      const { data: aw } = await supabase.from("Artwork").select("id, title, year, medium, status, publishedImageUrl, originalImageUrl, createdAt").eq("artistProfileId", pf?.id).order("createdAt", { ascending: false });
+      setArtworks(aw ?? []);
 
-    const { data: sub } = await supabase.from("Subscription").select("*").eq("userId", uid).order("createdAt", { ascending: false }).limit(1).single();
-    setSubscription(sub);
+      const { data: sub } = await supabase.from("Subscription").select("*").eq("userId", uid).order("createdAt", { ascending: false }).limit(1).single();
+      setSubscription(sub);
 
-    const { data: tiers } = await supabase.from("TierLimit").select("*").order("priceMonthlyCents", { ascending: true });
-    setTierLimits(tiers ?? []);
+      const { data: tiers } = await supabase.from("TierLimit").select("*").order("priceMonthlyCents", { ascending: true });
+      setTierLimits(tiers ?? []);
 
-    const { data: keys } = await supabase.from("ApiKey").select("*").eq("userId", uid).order("createdAt", { ascending: false });
-    setApiKeys(keys ?? []);
+      const { data: keys } = await supabase.from("ApiKey").select("*").eq("userId", uid).order("createdAt", { ascending: false });
+      setApiKeys(keys ?? []);
 
-    const { data: refs } = await supabase.from("Referral").select("*").eq("referrerId", uid).order("referredAt", { ascending: false });
-    setReferrals(refs ?? []);
+      const { data: refs } = await supabase.from("Referral").select("*").eq("referrerId", uid).order("referredAt", { ascending: false });
+      setReferrals(refs ?? []);
 
-    const periodStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString();
-    const { count: usedCount } = await supabase.from("TransformationUsage").select("*", { count: "exact", head: true }).eq("userId", uid).gte("periodStart", periodStart);
-    setUsage({ used: usedCount ?? 0, credits: pf?.transformationCredits ?? 0 });
+      const periodStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString();
+      const { count: usedCount } = await supabase.from("TransformationUsage").select("*", { count: "exact", head: true }).eq("userId", uid).gte("periodStart", periodStart);
+      setUsage({ used: usedCount ?? 0, credits: pf?.transformationCredits ?? 0 });
+    } catch (err) {
+      console.error("Error loading dashboard:", err);
+      toast.error("Failed to load dashboard data");
+    }
 
     setLoading(false);
-  }, [router]);
+  }, [checkAuth]);
 
-  useEffect(() => { loadAll(); const { data: listener } = supabase.auth.onAuthStateChange(() => loadAll()); return () => listener.subscription.unsubscribe(); }, [loadAll]);
+  useEffect(() => { 
+    loadAll(); 
+    const { data: listener } = supabase.auth.onAuthStateChange((event) => {
+      if (event === "SIGNED_IN" || event === "SIGNED_OUT") {
+        loadAll();
+      }
+    }); 
+    return () => listener.subscription.unsubscribe(); 
+  }, [loadAll]);
 
   const createApiKey = async () => {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) { toast.error("Please sign in"); return; }
     const prefix = "gk_live_";
     const randomBytes = new Uint8Array(24);
     crypto.getRandomValues(randomBytes);
     const keyBody = Array.from(randomBytes, b => b.toString(16).padStart(2, "0")).join("");
     const key = prefix + keyBody;
     const { error } = await supabase.from("ApiKey").insert({
-      userId: (await supabase.auth.getUser()).data.user?.id,
+      userId: user.id,
       name: "Key " + (apiKeys.length + 1),
       key,
       keyPrefix: key.slice(0, 16) + "...",
@@ -116,7 +150,6 @@ export default function DashboardPage() {
       const artwork = artworks.find(a => a.id === id);
       if (!artwork) continue;
       try {
-        // Delete from Storage (both original and published)
         for (const url of [artwork.originalImageUrl, artwork.publishedImageUrl]) {
           if (!url) continue;
           try {
@@ -127,9 +160,8 @@ export default function DashboardPage() {
               const p = parts.slice(bucketIdx + 1).join("/");
               await supabase.storage.from("artworks").remove([p]);
             }
-          } catch { /* ignore per-file errors */ }
+          } catch { /* ignore */ }
         }
-        // Delete image versions then artwork
         await supabase.from("ArtworkImageVersion").delete().eq("artworkId", id);
         await supabase.from("Artwork").delete().eq("id", id);
       } catch { failed++; }
@@ -140,6 +172,10 @@ export default function DashboardPage() {
     else toast.success(`${ids.length} artwork(s) deleted`);
     loadAll();
   };
+
+  if (isAuthenticated === false) {
+    return <DashboardSkeleton />; // Will redirect to signin
+  }
 
   if (loading) return <DashboardSkeleton />;
 
@@ -199,57 +235,41 @@ export default function DashboardPage() {
         </div>
 
         {artworks.length > 0 && (
-          <div className="mb-4 flex flex-wrap items-center gap-3">
-            <input
-              type="text"
-              placeholder="Search artworks..."
-              value={searchQuery}
-              onChange={(e) => { setSearchQuery(e.target.value); setCurrentPage(1); }}
-              className="h-9 rounded-md border border-stone-200 bg-white px-3 py-1 text-sm text-stone-700 placeholder:text-stone-400 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-stone-400"
-            />
-            <select
-              value={statusFilter}
-              onChange={(e) => { setStatusFilter(e.target.value); setCurrentPage(1); }}
-              className="h-9 rounded-md border border-stone-200 bg-white px-3 py-1 text-sm text-stone-700"
-            >
-              <option value="all">All statuses</option>
-              <option value="uploaded">Uploaded</option>
-              <option value="processing">Processing</option>
-              <option value="ready">Ready</option>
-              <option value="published">Published</option>
-              <option value="draft">Draft</option>
-            </select>
-            
-            <select
-              value={sortBy}
-              onChange={(e) => setSortBy(e.target.value)}
-              className="h-9 rounded-md border border-stone-200 bg-white px-3 py-1 text-sm text-stone-700"
-            >
-              <option value="newest">Newest first</option>
-              <option value="oldest">Oldest first</option>
-              <option value="name">Name (A-Z)</option>
-            </select>
-            
-            <span className="text-xs text-stone-500">{filteredArtworks.length} artwork{filteredArtworks.length !== 1 ? "s" : ""}</span>
-          </div>
-        )}
+          <>
+            <div className="mb-4 flex flex-wrap items-center gap-3">
+              <input type="text" placeholder="Search artworks..." value={searchQuery} onChange={(e) => { setSearchQuery(e.target.value); setCurrentPage(1); }} className="h-9 rounded-md border border-stone-200 bg-white px-3 py-1 text-sm text-stone-700 placeholder:text-stone-400 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-stone-400" />
+              <select value={statusFilter} onChange={(e) => { setStatusFilter(e.target.value); setCurrentPage(1); }} className="h-9 rounded-md border border-stone-200 bg-white px-3 py-1 text-sm text-stone-700">
+                <option value="all">All statuses</option>
+                <option value="uploaded">Uploaded</option>
+                <option value="processing">Processing</option>
+                <option value="ready">Ready</option>
+                <option value="published">Published</option>
+                <option value="draft">Draft</option>
+              </select>
+              <select value={sortBy} onChange={(e) => setSortBy(e.target.value)} className="h-9 rounded-md border border-stone-200 bg-white px-3 py-1 text-sm text-stone-700">
+                <option value="newest">Newest first</option>
+                <option value="oldest">Oldest first</option>
+                <option value="name">Name (A-Z)</option>
+              </select>
+              <span className="text-xs text-stone-500">{filteredArtworks.length} artwork{filteredArtworks.length !== 1 ? "s" : ""}</span>
+            </div>
 
-        {artworks.length > 0 && (
-          <div className="mb-3 flex items-center gap-3">
-            <label className="flex items-center gap-2 text-sm text-stone-500 cursor-pointer select-none">
-              <input type="checkbox" checked={selectedIds.size === artworks.length && artworks.length > 0} onChange={selectAll} className="h-4 w-4 rounded border-stone-300 text-stone-900 focus:ring-stone-400" />
-              Select all
-            </label>
-            {selectedIds.size > 0 && (
-              <div className="flex items-center gap-2">
-                <span className="text-xs text-stone-500">{selectedIds.size} selected</span>
-                <Button variant="outline" size="sm" onClick={() => setSelectedIds(new Set())} className="border-stone-200 text-xs h-7"><X className="h-3 w-3 mr-1" />Clear</Button>
-                <Button variant="outline" size="sm" onClick={() => deleteArtworks(Array.from(selectedIds))} disabled={deleting} className="border-red-200 text-red-600 hover:bg-red-50 text-xs h-7">
-                  <Trash2 className="h-3 w-3 mr-1" />{deleting ? "Deleting..." : "Delete selected"}
-                </Button>
-              </div>
-            )}
-          </div>
+            <div className="mb-3 flex items-center gap-3">
+              <label className="flex items-center gap-2 text-sm text-stone-500 cursor-pointer select-none">
+                <input type="checkbox" checked={selectedIds.size === artworks.length && artworks.length > 0} onChange={selectAll} className="h-4 w-4 rounded border-stone-300 text-stone-900 focus:ring-stone-400" />
+                Select all
+              </label>
+              {selectedIds.size > 0 && (
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-stone-500">{selectedIds.size} selected</span>
+                  <Button variant="outline" size="sm" onClick={() => setSelectedIds(new Set())} className="border-stone-200 text-xs h-7"><X className="h-3 w-3 mr-1" />Clear</Button>
+                  <Button variant="outline" size="sm" onClick={() => deleteArtworks(Array.from(selectedIds))} disabled={deleting} className="border-red-200 text-red-600 hover:bg-red-50 text-xs h-7">
+                    <Trash2 className="h-3 w-3 mr-1" />{deleting ? "Deleting..." : "Delete selected"}
+                  </Button>
+                </div>
+              )}
+            </div>
+          </>
         )}
 
         <Card className="border-stone-200 shadow-none"><CardContent className="pt-6">
@@ -337,7 +357,7 @@ export default function DashboardPage() {
                   {subscription?.tier === tier.tier ? (
                     <Button disabled className="mt-4 w-full bg-stone-900 text-stone-50">Current plan</Button>
                   ) : (
-                    <Button asChild className="mt-4 w-full bg-stone-900 text-stone-50 hover:bg-stone-800"><Link href="/settings/billing">Upgrade</Link></Button>
+                    <Button asChild className="mt-4 w-full bg-stone-900 text-stone-50 hover:bg-stone-800"><Link href="/pricing">Upgrade</Link></Button>
                   )}
                 </CardContent>
               </Card>
@@ -375,7 +395,7 @@ export default function DashboardPage() {
           <Card className="border-stone-200 shadow-none"><CardContent className="pt-6">
             <p className="text-sm text-stone-500">Your referral link</p>
             <div className="mt-2 flex items-center gap-3">
-              <code className="flex-1 rounded-sm border border-stone-200 bg-stone-50 px-3 py-2 text-sm text-stone-700 break-all">{"https://gessa.art/signup?ref=" + (profile?.referralCode || "...")}</code>
+              <code className="flex-1 rounded-sm border border-stone-200 bg-stone-50 px-3 py-2 text-sm text-stone-700 break-all">{"https://gessa.art/auth/register?ref=" + (profile?.referralCode || "...")}</code>
               <Button variant="outline" size="sm" onClick={copyReferralLink} className="border-stone-200"><Copy className="h-4 w-4" /></Button>
             </div>
             <p className="mt-2 text-xs text-stone-500">Share this link. When someone signs up and subscribes, you both earn transformation credits.</p>

@@ -39,9 +39,9 @@ function ReviewContent() {
 
   const fetchArtwork = useCallback(async () => {
     const { data: { session } } = await supabase.auth.getSession();
-    if (!session?.user) { router.push("/auth/signin"); return; }
+    if (!session?.user) { window.location.href = "/auth/signin"; return; }
     const { data: artworkData } = await supabase.from("Artwork").select("*").eq("id", id).single();
-    if (!artworkData) { router.push("/dashboard"); return; }
+    if (!artworkData) { window.location.href = "/dashboard"; return; }
     setArtwork(artworkData);
     const { data: versionData } = await supabase.from("ArtworkImageVersion").select("*").eq("artworkId", id).order("createdAt", { ascending: false });
     setVersions(versionData || []);

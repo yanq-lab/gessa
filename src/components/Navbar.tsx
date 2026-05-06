@@ -15,10 +15,10 @@ export function Navbar() {
   const mobileMenuRef = useRef<HTMLDivElement>(null);
 
   const refresh = useCallback(async () => {
-    const { data } = await supabase.auth.getUser();
-    setUser(data.user);
-    if (data.user) {
-      const { data: profile } = await supabase.from("ArtistProfile").select("slug").eq("userId", data.user.id).single();
+    const { data: { session } } = await supabase.auth.getSession();
+    setUser(session?.user || null);
+    if (session?.user) {
+      const { data: profile } = await supabase.from("ArtistProfile").select("slug").eq("userId", session.user.id).single();
       if (profile) setArtistSlug(profile.slug);
     }
   }, []);
