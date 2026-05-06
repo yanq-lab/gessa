@@ -110,7 +110,7 @@ function ReviewContent() {
     }).eq("id", id);
     if (error) { toast.error("Failed to publish"); setPublishing(false); return; }
     toast.success("Artwork published");
-    router.push("/dashboard");
+    window.location.href = "/dashboard";
   };
 
   const handleSaveDraft = async () => {

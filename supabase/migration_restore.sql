@@ -18,6 +18,11 @@ CREATE TABLE IF NOT EXISTS "ArtworkImageVersion" (
 
 CREATE INDEX IF NOT EXISTS idx_image_version_artwork ON "ArtworkImageVersion"("artworkId");
 
+-- RLS: Allow insert for authenticated users who own the artwork
+CREATE POLICY "Users insert own image versions" ON "ArtworkImageVersion" FOR INSERT TO authenticated WITH CHECK (
+  "artworkId" IN (SELECT id FROM "Artwork" WHERE "artistProfileId" IN (SELECT id FROM "ArtistProfile" WHERE "userId" = auth.uid()))
+);
+
 -- Async restore job tracking
 CREATE TABLE IF NOT EXISTS "RestoreJob" (
   id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
