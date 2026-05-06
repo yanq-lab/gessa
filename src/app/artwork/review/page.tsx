@@ -71,6 +71,20 @@ function ReviewContent() {
   const handleRestore = async () => {
     const { data: { session } } = await supabase.auth.getSession();
     if (!session) { toast.error("Please sign in"); return; }
+    
+    // Immediately show progress bar with "starting" state
+    setJobStatus({
+      id: "starting",
+      status: "processing",
+      mode,
+      error: null,
+      createdAt: new Date().toISOString(),
+      startedAt: null,
+      completedAt: null,
+    });
+    
+    toast.info("Restoration started. This may take 1-2 minutes.");
+    
     try {
       const res = await fetch(`${SUPABASE_URL}/functions/v1/restore-artwork`, {
         method: "POST",
@@ -80,10 +94,19 @@ function ReviewContent() {
       const data = await res.json();
       if (!data.ok) { 
         toast.error(data.error?.message || "Restore failed"); 
+        setJobStatus({
+          id: "failed",
+          status: "failed",
+          mode,
+          error: data.error?.message || "Restore failed",
+          createdAt: new Date().toISOString(),
+          startedAt: null,
+          completedAt: new Date().toISOString(),
+        });
         return; 
       }
       
-      // If synchronous response includes completed job, update immediately
+      // Update with real job status from response
       if (data.job) {
         setJobStatus(data.job);
         if (data.job.status === "ready") {
@@ -93,13 +116,19 @@ function ReviewContent() {
           toast.error(data.job.error || "Restoration failed");
         }
       } else if (data.jobId) {
-        // Start polling for progress
         startPolling(data.jobId);
       }
-      
-      toast.info("Restoration in progress. This may take 1-2 minutes.");
-    } catch { 
+    } catch (err: any) { 
       toast.error("Network error. Please try again."); 
+      setJobStatus({
+        id: "failed",
+        status: "failed",
+        mode,
+        error: err.message || "Network error",
+        createdAt: new Date().toISOString(),
+        startedAt: null,
+        completedAt: new Date().toISOString(),
+      });
     }
   };
 
