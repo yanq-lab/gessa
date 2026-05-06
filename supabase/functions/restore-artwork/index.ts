@@ -281,44 +281,21 @@ serve(async (req: Request) => {
   // Update artwork status
   await supabase.from("Artwork").update({ status: "processing" }).eq("id", artworkId);
 
-  // Process restoration synchronously (await to ensure completion)
-  try {
-    await processRestoreJob(job.id, artworkId, userId, mode);
-    
-    // Fetch final job status
-    const { data: finalJob } = await supabase.from("RestoreJob").select("*").eq("id", job.id).single();
-    
-    return jsonResponse({
-      ok: true,
-      jobId: job.id,
-      status: finalJob?.status || "ready",
-      job: finalJob ? {
-        id: finalJob.id,
-        status: finalJob.status,
-        mode: finalJob.mode,
-        error: finalJob.error,
-        createdAt: finalJob.createdAt,
-        startedAt: finalJob.startedAt,
-        completedAt: finalJob.completedAt,
-      } : null,
-    });
-  } catch (err: any) {
-    console.error(`[RestoreJob ${job.id}] Synchronous processing failed: ${err.message}`);
-    
-    // Ensure job is marked as failed
-    await supabase.from("RestoreJob").update({
-      status: "failed",
-      error: err.message,
-      completedAt: new Date().toISOString(),
-    }).eq("id", job.id);
-    
-    // Reset artwork status
-    await supabase.from("Artwork").update({ status: "uploaded" }).eq("id", artworkId);
-    
-    return jsonResponse({
-      ok: false,
-      error: { code: "RESTORE_FAILED", message: err.message },
-      jobId: job.id,
-    }, 500);
-  }
+  // Start background processing (don't await - Edge Function will return immediately)
+  // Use an IIFE to avoid blocking the HTTP response
+  (async () => {
+    try {
+      await processRestoreJob(job.id, artworkId, userId, mode);
+    } catch (err: any) {
+      console.error(`[RestoreJob ${job.id}] Background processing failed: ${err.message}`);
+    }
+  })();
+
+  // Return immediately with job ID for polling
+  return jsonResponse({
+    ok: true,
+    jobId: job.id,
+    status: "queued",
+    message: "Restore job created. Polling for progress.",
+  });
 });
