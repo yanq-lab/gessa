@@ -163,19 +163,38 @@ function ReviewContent() {
         </div>
       )}
 
-      {artwork.status === "uploaded" && !latestRestored && !isRestoring && (
+      {!latestRestored && !isRestoring && (
         <div className="mb-10 rounded-sm border border-stone-200 bg-stone-50 p-8 text-center">
           <Sparkles className="mx-auto h-10 w-10 text-stone-400" strokeWidth={1.5} />
-          <h2 className="mt-4 font-serif text-xl text-stone-900">Ready to restore</h2>
-          <p className="mt-2 text-sm text-stone-600">Gessa will create a faithful digital presentation based on your uploaded photo.</p>
-          <div className="mt-4 flex items-center justify-center gap-3">
-            <select value={mode} onChange={(e) => setMode(e.target.value as "faithful" | "gallery")} className="h-9 rounded-md border border-stone-200 bg-white px-3 py-1 text-sm text-stone-700">
-              <option value="faithful">Faithful — preserve original</option>
-              <option value="gallery">Gallery — clean presentation</option>
-            </select>
-            <Button onClick={handleRestore} disabled={isRestoring} className="bg-stone-900 text-stone-50 hover:bg-stone-800">
-              {isRestoring ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Restoring...</> : "Restore artwork"}
-            </Button>
+          <h2 className="mt-4 font-serif text-xl text-stone-900">Review your artwork</h2>
+          <p className="mt-2 text-sm text-stone-600">Choose how you want to proceed with this artwork.</p>
+          
+          <div className="mt-6 grid gap-4 sm:grid-cols-2 max-w-lg mx-auto">
+            <div className="rounded-sm border border-stone-200 bg-white p-4 text-left">
+              <h3 className="font-medium text-stone-900">Restore with AI</h3>
+              <p className="mt-1 text-xs text-stone-500">Let Gessa automatically correct perspective, lighting, and color.</p>
+              <div className="mt-3">
+                <select value={mode} onChange={(e) => setMode(e.target.value as "faithful" | "gallery")} className="h-8 w-full rounded-md border border-stone-200 bg-white px-2 py-1 text-xs text-stone-700">
+                  <option value="faithful">Faithful — preserve original</option>
+                  <option value="gallery">Gallery — clean presentation</option>
+                </select>
+              </div>
+              <Button onClick={handleRestore} disabled={isRestoring} className="mt-3 w-full bg-stone-900 text-stone-50 hover:bg-stone-800 text-xs">
+                {isRestoring ? <><Loader2 className="mr-1 h-3 w-3 animate-spin" />Restoring...</> : "Restore artwork"}
+              </Button>
+            </div>
+            
+            <div className="rounded-sm border border-stone-200 bg-white p-4 text-left">
+              <h3 className="font-medium text-stone-900">Publish as-is</h3>
+              <p className="mt-1 text-xs text-stone-500">Skip restoration and publish the original photo directly.</p>
+              <Button 
+                variant="outline" 
+                onClick={() => { setSelectedImage(artwork?.originalImageUrl || null); setSelectedVersionType("original"); toast.info("Scroll down to publish"); }} 
+                className="mt-6 w-full border-stone-200 text-stone-700 hover:bg-stone-100 text-xs"
+              >
+                Use original photo
+              </Button>
+            </div>
           </div>
         </div>
       )}
@@ -202,6 +221,22 @@ function ReviewContent() {
             <Button variant="outline" onClick={handleSaveDraft} className="border-stone-200 text-stone-700 hover:bg-stone-100">Save draft</Button>
           </div>
         </>
+      )}
+      
+      {!latestRestored && selectedImage && !isRestoring && (
+        <div className="mb-10">
+          <div className="relative aspect-[4/3] w-full max-w-2xl mx-auto overflow-hidden rounded-sm border border-stone-200 bg-stone-100">
+            <img src={selectedImage} alt="Selected artwork" className="h-full w-full object-contain" />
+          </div>
+          <p className="mt-3 text-center text-xs text-stone-500">
+            Original photo — no restoration applied
+          </p>
+          <div className="mt-4 flex justify-center gap-3">
+            <Button variant="outline" onClick={() => { setSelectedImage(null); setSelectedVersionType(null); }} className="border-stone-200 text-stone-700 hover:bg-stone-100 text-xs">
+              Change selection
+            </Button>
+          </div>
+        </div>
       )}
 
       <div className="mx-auto max-w-lg rounded-sm border border-stone-200 bg-stone-50 p-6">
