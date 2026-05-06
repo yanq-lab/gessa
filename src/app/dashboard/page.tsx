@@ -6,7 +6,7 @@ import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Upload, ImageIcon, Loader2, ExternalLink, Copy, Gift, Key, CreditCard, BarChart3 } from "lucide-react";
+import { Upload, ImageIcon, Loader2, ExternalLink, Copy, Gift, Key, CreditCard, BarChart3, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
 
 interface Artwork { id: string; title: string; year: string | null; medium: string | null; status: string; publishedImageUrl: string | null; originalImageUrl: string | null; }
@@ -29,6 +29,8 @@ export default function DashboardPage() {
   const [referrals, setReferrals] = useState<ReferralRow[]>([]);
   const [usage, setUsage] = useState({ used: 0, credits: 0 });
   const [loading, setLoading] = useState(true);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [deleting, setDeleting] = useState(false);
 
   const loadAll = useCallback(async () => {
     const { data: { session } } = await supabase.auth.getSession();
@@ -91,6 +93,48 @@ export default function DashboardPage() {
     navigator.clipboard.writeText("https://gessa.art/signup?ref=" + profile.referralCode).then(() => toast.success("Referral link copied"));
   };
 
+  const toggleSelect = (artworkId: string) => {
+    setSelectedIds(prev => { const next = new Set(prev); if (next.has(artworkId)) next.delete(artworkId); else next.add(artworkId); return next; });
+  };
+
+  const selectAll = () => {
+    if (selectedIds.size === artworks.length) { setSelectedIds(new Set()); return; }
+    setSelectedIds(new Set(artworks.map(a => a.id)));
+  };
+
+  const deleteArtworks = async (ids: string[]) => {
+    if (!ids.length) return;
+    setDeleting(true);
+    let failed = 0;
+    for (const id of ids) {
+      const artwork = artworks.find(a => a.id === id);
+      if (!artwork) continue;
+      try {
+        // Delete from Storage (both original and published)
+        for (const url of [artwork.originalImageUrl, artwork.publishedImageUrl]) {
+          if (!url) continue;
+          try {
+            const u = new URL(url);
+            const parts = u.pathname.split("/");
+            const bucketIdx = parts.indexOf("artworks");
+            if (bucketIdx >= 0) {
+              const p = parts.slice(bucketIdx + 1).join("/");
+              await supabase.storage.from("artworks").remove([p]);
+            }
+          } catch { /* ignore per-file errors */ }
+        }
+        // Delete image versions then artwork
+        await supabase.from("ArtworkImageVersion").delete().eq("artworkId", id);
+        await supabase.from("Artwork").delete().eq("id", id);
+      } catch { failed++; }
+    }
+    setDeleting(false);
+    setSelectedIds(new Set());
+    if (failed > 0) toast.error(`${failed} artwork(s) failed to delete`);
+    else toast.success(`${ids.length} artwork(s) deleted`);
+    loadAll();
+  };
+
   if (loading) return <div className="mx-auto flex w-full max-w-6xl items-center justify-center px-4 py-24"><Loader2 className="h-6 w-6 animate-spin text-stone-400" /></div>;
 
   const currentTier = tierLimits.find(t => t.tier === (subscription?.tier || "free")) || tierLimits[0];
@@ -122,21 +166,44 @@ export default function DashboardPage() {
           <Card className="border-stone-200 shadow-none"><CardContent className="pt-6"><p className="text-sm text-stone-500">Published</p><p className="mt-1 font-serif text-3xl text-stone-900">{artworks.filter(a => a.status === "published").length}</p></CardContent></Card>
           <Card className="border-stone-200 shadow-none"><CardContent className="pt-6"><p className="text-sm text-stone-500">Transformations</p><p className="mt-1 font-serif text-3xl text-stone-900">{usage.used} / {currentTier?.monthlyTransformations || 3}</p></CardContent></Card>
         </div>
+
+        {artworks.length > 0 && (
+          <div className="mb-3 flex items-center gap-3">
+            <label className="flex items-center gap-2 text-sm text-stone-500 cursor-pointer select-none">
+              <input type="checkbox" checked={selectedIds.size === artworks.length && artworks.length > 0} onChange={selectAll} className="h-4 w-4 rounded border-stone-300 text-stone-900 focus:ring-stone-400" />
+              Select all
+            </label>
+            {selectedIds.size > 0 && (
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-stone-500">{selectedIds.size} selected</span>
+                <Button variant="outline" size="sm" onClick={() => setSelectedIds(new Set())} className="border-stone-200 text-xs h-7"><X className="h-3 w-3 mr-1" />Clear</Button>
+                <Button variant="outline" size="sm" onClick={() => deleteArtworks(Array.from(selectedIds))} disabled={deleting} className="border-red-200 text-red-600 hover:bg-red-50 text-xs h-7">
+                  <Trash2 className="h-3 w-3 mr-1" />{deleting ? "Deleting..." : "Delete selected"}
+                </Button>
+              </div>
+            )}
+          </div>
+        )}
+
         <Card className="border-stone-200 shadow-none"><CardContent className="pt-6">
           {artworks.length === 0 ? (
             <div className="flex flex-col items-center py-12 text-center"><ImageIcon className="h-8 w-8 text-stone-400" strokeWidth={1.5} /><p className="mt-3 text-sm text-stone-600">No artworks yet.</p><Button asChild variant="link" className="mt-2 text-stone-900"><Link href="/artwork/upload">Upload your first artwork</Link></Button></div>
           ) : (
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
               {artworks.slice(0, 8).map(artwork => (
-                <Link key={artwork.id} href={"/artwork/review?id=" + artwork.id} className="group flex flex-col gap-2">
+                <div key={artwork.id} className="group flex flex-col gap-2 relative">
                   <div className="relative aspect-[3/4] overflow-hidden rounded-sm border border-stone-200 bg-stone-100">
-                    {artwork.publishedImageUrl || artwork.originalImageUrl ? (
-                      <img src={artwork.publishedImageUrl || artwork.originalImageUrl || ""} alt={artwork.title} className="h-full w-full object-cover transition-transform group-hover:scale-[1.02]" />
-                    ) : (<div className="flex h-full items-center justify-center"><ImageIcon className="h-6 w-6 text-stone-300" strokeWidth={1.5} /></div>)}
+                    <Link href={"/artwork/review?id=" + artwork.id}>
+                      {artwork.publishedImageUrl || artwork.originalImageUrl ? (
+                        <img src={artwork.publishedImageUrl || artwork.originalImageUrl || ""} alt={artwork.title} className="h-full w-full object-cover transition-transform group-hover:scale-[1.02]" />
+                      ) : (<div className="flex h-full items-center justify-center"><ImageIcon className="h-6 w-6 text-stone-300" strokeWidth={1.5} /></div>)}
+                    </Link>
+                    <div className="absolute left-2 top-2"><input type="checkbox" checked={selectedIds.has(artwork.id)} onChange={() => toggleSelect(artwork.id)} className="h-4 w-4 rounded border-stone-300 text-stone-900 focus:ring-stone-400 bg-white/80" /></div>
                     <div className="absolute right-2 top-2"><Badge variant="secondary" className="bg-white/90 text-[10px] font-normal text-stone-700">{artwork.status}</Badge></div>
+                    <button onClick={() => deleteArtworks([artwork.id])} disabled={deleting} className="absolute right-2 bottom-2 rounded-full bg-white/90 p-1.5 text-stone-400 hover:text-red-600 opacity-0 group-hover:opacity-100 transition-opacity" title="Delete"><Trash2 className="h-3.5 w-3.5" /></button>
                   </div>
-                  <div><p className="text-sm font-medium text-stone-900">{artwork.title}</p><p className="text-xs text-stone-500">{artwork.year} {artwork.medium && "· " + artwork.medium}</p></div>
-                </Link>
+                  <Link href={"/artwork/review?id=" + artwork.id}><p className="text-sm font-medium text-stone-900">{artwork.title}</p><p className="text-xs text-stone-500">{artwork.year} {artwork.medium && "· " + artwork.medium}</p></Link>
+                </div>
               ))}
             </div>
           )}
