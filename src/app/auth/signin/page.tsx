@@ -32,13 +32,7 @@ export default function SignInPage() {
 
       setDebugInfo("Calling supabase.auth.signInWithPassword...");
       
-      // Add timeout wrapper
-      const signInPromise = supabase.auth.signInWithPassword({ email, password });
-      const timeoutPromise = new Promise((_, reject) => 
-        setTimeout(() => reject(new Error("Request timeout - please check your internet connection")), 15000)
-      );
-      
-      const { data, error: signinError } = await Promise.race([signInPromise, timeoutPromise]) as any;
+      const { data, error: signinError } = await supabase.auth.signInWithPassword({ email, password });
       
       setDebugInfo(`Response received. Error: ${signinError?.message || 'none'}`);
       
