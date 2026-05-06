@@ -33,8 +33,8 @@ function ReviewContent() {
   const latestRestored = versions.filter(v => v.type === "restored").sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0];
 
   const fetchArtwork = useCallback(async () => {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) { router.push("/auth/signin"); return; }
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session?.user) { router.push("/auth/signin"); return; }
     const { data: artworkData } = await supabase.from("Artwork").select("*").eq("id", id).single();
     if (!artworkData) { router.push("/dashboard"); return; }
     setArtwork(artworkData);

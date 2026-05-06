@@ -31,9 +31,9 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
 
   const loadAll = useCallback(async () => {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) { router.push("/auth/signin"); return; }
-    const uid = user.id;
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session?.user) { router.push("/auth/signin"); return; }
+    const uid = session.user.id;
 
     const { data: pf } = await supabase.from("ArtistProfile").select("*").eq("userId", uid).single();
     setProfile(pf);
