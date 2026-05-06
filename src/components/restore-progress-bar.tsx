@@ -62,7 +62,15 @@ export function RestoreProgressBar({ progress, status, error }: RestoreProgressB
         </p>
       )}
 
-      {error && (
+      {status === "failed" && (
+        <div className="mt-3 rounded-sm bg-red-50 p-3 text-sm text-red-600">
+          <p className="font-medium">Restoration failed</p>
+          <p className="mt-1 text-xs">{error || "Unknown error occurred"}</p>
+          <p className="mt-2 text-xs text-stone-500">Please try again or use the original photo.</p>
+        </div>
+      )}
+
+      {error && status !== "failed" && (
         <div className="mt-3 rounded-sm bg-red-50 p-3 text-sm text-red-600">
           {error}
         </div>

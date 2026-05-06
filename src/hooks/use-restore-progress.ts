@@ -47,6 +47,19 @@ export function useRestoreProgress() {
     }
   };
 
+  const setJobStatus = useCallback((job: RestoreJob) => {
+    const progressPercent = calculateProgress(job);
+    setProgress({
+      job,
+      progress: progressPercent,
+      isPolling: job.status !== "ready" && job.status !== "failed",
+      error: job.error,
+    });
+    if (job.status === "ready" || job.status === "failed") {
+      stopPolling();
+    }
+  }, [stopPolling]);
+
   const startPolling = useCallback((jobId: string) => {
     stopPolling();
     
@@ -126,5 +139,6 @@ export function useRestoreProgress() {
     ...progress,
     startPolling,
     stopPolling,
+    setJobStatus,
   };
 }

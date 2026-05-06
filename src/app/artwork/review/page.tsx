@@ -33,7 +33,7 @@ function ReviewContent() {
   const [toolOnly, setToolOnly] = useState(false);
   const [mode, setMode] = useState<"faithful" | "gallery">("faithful");
 
-  const { progress, job, isPolling, error: restoreError, startPolling } = useRestoreProgress();
+  const { progress, job, isPolling, error: restoreError, startPolling, setJobStatus } = useRestoreProgress();
 
   const latestRestored = versions.filter(v => v.type === "restored").sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0];
 
@@ -83,9 +83,21 @@ function ReviewContent() {
         return; 
       }
       
-      // Start polling for progress
-      startPolling(data.jobId);
-      toast.info("Restoration started. This may take 1-2 minutes.");
+      // If synchronous response includes completed job, update immediately
+      if (data.job) {
+        setJobStatus(data.job);
+        if (data.job.status === "ready") {
+          toast.success("Restoration complete!");
+          fetchArtwork();
+        } else if (data.job.status === "failed") {
+          toast.error(data.job.error || "Restoration failed");
+        }
+      } else if (data.jobId) {
+        // Start polling for progress
+        startPolling(data.jobId);
+      }
+      
+      toast.info("Restoration in progress. This may take 1-2 minutes.");
     } catch { 
       toast.error("Network error. Please try again."); 
     }

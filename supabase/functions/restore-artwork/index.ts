@@ -54,8 +54,11 @@ function uint8ArrayToBase64(bytes: Uint8Array): string {
 
 // Process restore job in background
 async function processRestoreJob(jobId: string, artworkId: string, userId: string, mode: string) {
+  console.log(`[RestoreJob ${jobId}] Starting processing...`);
+  
   try {
     // Update job to processing
+    console.log(`[RestoreJob ${jobId}] Updating status to processing...`);
     await supabase.from("RestoreJob").update({ 
       status: "processing", 
       startedAt: new Date().toISOString() 
@@ -63,24 +66,30 @@ async function processRestoreJob(jobId: string, artworkId: string, userId: strin
 
     const { data: artwork } = await supabase.from("Artwork").select("originalImageUrl").eq("id", artworkId).single();
     if (!artwork?.originalImageUrl) throw new Error("No original image found");
+    console.log(`[RestoreJob ${jobId}] Found artwork image: ${artwork.originalImageUrl.substring(0, 50)}...`);
 
     // Download original image
     const url = new URL(artwork.originalImageUrl);
     const pathParts = url.pathname.split("/");
     const bucketIndex = pathParts.indexOf("artworks");
     const storagePath = bucketIndex >= 0 ? pathParts.slice(bucketIndex + 1).join("/") : artwork.originalImageUrl;
+    console.log(`[RestoreJob ${jobId}] Downloading from storage: ${storagePath}`);
+    
     const { data: imageBlob, error: dlError } = await supabase.storage.from("artworks").download(storagePath);
-    if (dlError || !imageBlob) throw new Error("Failed to download original image");
+    if (dlError || !imageBlob) throw new Error(`Failed to download original image: ${dlError?.message || "unknown error"}`);
+    console.log(`[RestoreJob ${jobId}] Downloaded image, size: ${imageBlob.size} bytes`);
 
     const arrayBuffer = await imageBlob.arrayBuffer();
     const bytes = new Uint8Array(arrayBuffer);
     const base64Data = uint8ArrayToBase64(bytes);
     const mimeType = imageBlob.type || "image/jpeg";
     const dataUri = `data:${mimeType};base64,${base64Data}`;
+    console.log(`[RestoreJob ${jobId}] Converted to base64, length: ${base64Data.length}`);
 
     const prompt = mode === "gallery" ? GALLERY_PROMPT : FAITHFUL_PROMPT;
 
     // Call AI Worker
+    console.log(`[RestoreJob ${jobId}] Calling AI Worker at ${WORKER_URL}...`);
     const workerRes = await fetch(WORKER_URL, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -89,35 +98,44 @@ async function processRestoreJob(jobId: string, artworkId: string, userId: strin
 
     if (!workerRes.ok) {
       const errorText = await workerRes.text();
-      throw new Error(`Worker error: ${errorText}`);
+      throw new Error(`Worker error ${workerRes.status}: ${errorText}`);
     }
 
     const workerResult = await workerRes.json() as { state?: string; result?: { image?: string }; error?: string };
-    if (workerResult.error) throw new Error(workerResult.error);
+    console.log(`[RestoreJob ${jobId}] Worker response:`, JSON.stringify(workerResult).substring(0, 200));
+    
+    if (workerResult.error) throw new Error(`Worker returned error: ${workerResult.error}`);
 
     const generatedImageUrl = workerResult.result?.image;
     if (!generatedImageUrl) throw new Error("No image returned from AI");
+    console.log(`[RestoreJob ${jobId}] Got generated image URL`);
 
     // Download generated image
+    console.log(`[RestoreJob ${jobId}] Downloading generated image...`);
     const imageRes = await fetch(generatedImageUrl);
     if (!imageRes.ok) throw new Error(`Failed to download generated image: ${imageRes.status}`);
     const imageBytes = new Uint8Array(await imageRes.arrayBuffer());
+    console.log(`[RestoreJob ${jobId}] Downloaded generated image, size: ${imageBytes.length} bytes`);
 
     // Upload to storage
     const timestamp = Date.now();
     const restoredPath = `${userId}/artworks/${artworkId}/restored-${timestamp}.png`;
+    console.log(`[RestoreJob ${jobId}] Uploading to storage: ${restoredPath}`);
     await supabase.storage.from("artworks").upload(restoredPath, imageBytes, { contentType: "image/png", upsert: false });
 
     const { data: urlData } = supabase.storage.from("artworks").getPublicUrl(restoredPath);
     const restoredImageUrl = urlData.publicUrl;
+    console.log(`[RestoreJob ${jobId}] Uploaded restored image: ${restoredImageUrl.substring(0, 50)}...`);
 
     // Create image version
+    console.log(`[RestoreJob ${jobId}] Creating ArtworkImageVersion...`);
     const { data: version } = await supabase.from("ArtworkImageVersion").insert({
       artworkId,
       type: "restored",
       url: restoredImageUrl,
       metadata: { mode, model: "gpt-image-2", provider: "cloudflare-workers" }
     }).select("id").single();
+    console.log(`[RestoreJob ${jobId}] Created version: ${version?.id}`);
 
     // Update artwork status
     await supabase.from("Artwork").update({ status: "ready" }).eq("id", artworkId);
@@ -131,23 +149,11 @@ async function processRestoreJob(jobId: string, artworkId: string, userId: strin
       completedAt: new Date().toISOString(),
     }).eq("id", jobId);
 
-    // Send email notification (don't await, fire and forget)
-    const { data: artworkData } = await supabase.from("Artwork").select("title").eq("id", artworkId).single();
-    fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/notify-email`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}` },
-      body: JSON.stringify({
-        type: "restore_complete",
-        userId,
-        artworkId,
-        artworkTitle: artworkData?.title || "Your artwork",
-      }),
-    }).catch(console.error);
-
     console.log(`[RestoreJob ${jobId}] Completed successfully`);
 
   } catch (err: any) {
     console.error(`[RestoreJob ${jobId}] Failed: ${err.message}`);
+    console.error(`[RestoreJob ${jobId}] Stack: ${err.stack}`);
     
     // Update job to failed
     await supabase.from("RestoreJob").update({
@@ -275,14 +281,44 @@ serve(async (req: Request) => {
   // Update artwork status
   await supabase.from("Artwork").update({ status: "processing" }).eq("id", artworkId);
 
-  // Start background processing (don't await)
-  processRestoreJob(job.id, artworkId, userId, mode).catch(console.error);
-
-  // Return immediately with job ID
-  return jsonResponse({
-    ok: true,
-    jobId: job.id,
-    status: "queued",
-    message: "Restore job created. Use GET /restore-status?jobId=xxx to check progress.",
-  });
+  // Process restoration synchronously (await to ensure completion)
+  try {
+    await processRestoreJob(job.id, artworkId, userId, mode);
+    
+    // Fetch final job status
+    const { data: finalJob } = await supabase.from("RestoreJob").select("*").eq("id", job.id).single();
+    
+    return jsonResponse({
+      ok: true,
+      jobId: job.id,
+      status: finalJob?.status || "ready",
+      job: finalJob ? {
+        id: finalJob.id,
+        status: finalJob.status,
+        mode: finalJob.mode,
+        error: finalJob.error,
+        createdAt: finalJob.createdAt,
+        startedAt: finalJob.startedAt,
+        completedAt: finalJob.completedAt,
+      } : null,
+    });
+  } catch (err: any) {
+    console.error(`[RestoreJob ${job.id}] Synchronous processing failed: ${err.message}`);
+    
+    // Ensure job is marked as failed
+    await supabase.from("RestoreJob").update({
+      status: "failed",
+      error: err.message,
+      completedAt: new Date().toISOString(),
+    }).eq("id", job.id);
+    
+    // Reset artwork status
+    await supabase.from("Artwork").update({ status: "uploaded" }).eq("id", artworkId);
+    
+    return jsonResponse({
+      ok: false,
+      error: { code: "RESTORE_FAILED", message: err.message },
+      jobId: job.id,
+    }, 500);
+  }
 });
