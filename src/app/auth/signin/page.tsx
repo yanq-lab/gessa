@@ -1,6 +1,5 @@
 "use client";
 import { useState } from "react";
-import { supabase } from "@/lib/supabase";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -8,58 +7,62 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { toast } from "sonner";
 
+const SUPABASE_URL = "https://khqngwvvcoosqgtpmdan.supabase.co";
+const ANON_KEY = "sb_publishable_fA9fti-EZ5v7hVvVvhm-tg_QsUzhM5E";
+
 export default function SignInPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
-  const [debugInfo, setDebugInfo] = useState("");
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
-    setDebugInfo("Starting sign in...");
     setLoading(true);
-    
+
     try {
-      // Check Supabase client is initialized
-      if (!supabase) {
-        setError("Supabase client not initialized");
-        setDebugInfo("Error: Supabase client is null");
+      const res = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=password`, {
+        method: "POST",
+        headers: {
+          "apikey": ANON_KEY,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ email, password, gotrue_meta_security: {} }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok || data.error) {
+        setError(data.error_description || data.msg || data.error || "Sign in failed");
         setLoading(false);
         return;
       }
 
-      setDebugInfo("Calling supabase.auth.signInWithPassword...");
-      
-      const { data, error: signinError } = await supabase.auth.signInWithPassword({ email, password });
-      
-      setDebugInfo(`Response received. Error: ${signinError?.message || 'none'}`);
-      
-      if (signinError) {
-        setError(signinError.message);
+      if (!data.access_token) {
+        setError("Login failed. No token returned.");
         setLoading(false);
         return;
       }
-      
-      if (!data?.user) {
-        setError("Login failed. No user data returned.");
-        setDebugInfo("Error: No user in response data");
-        setLoading(false);
-        return;
-      }
-      
-      setDebugInfo(`Success! User: ${data.user.email}. Redirecting...`);
+
+      localStorage.setItem(
+        `sb-${new URL(SUPABASE_URL).hostname.split(".")[0]}-auth-token`,
+        JSON.stringify({
+          access_token: data.access_token,
+          refresh_token: data.refresh_token,
+          expires_at: data.expires_at,
+          expires_in: data.expires_in,
+          token_type: data.token_type,
+          user: data.user,
+        })
+      );
+
       toast.success("Signed in successfully!");
-      
-      // Small delay to show success message
       setTimeout(() => {
         window.location.href = "/dashboard";
-      }, 500);
+      }, 300);
     } catch (err: any) {
-      console.error("Sign in error:", err);
       setError(err?.message || "Network error. Please try again.");
-      setDebugInfo(`Exception: ${err?.message || 'unknown'}`);
       setLoading(false);
     }
   };
@@ -100,11 +103,6 @@ export default function SignInPage() {
             {error && (
               <div className="rounded-sm bg-red-50 p-3 text-sm text-red-600">
                 {error}
-              </div>
-            )}
-            {debugInfo && (
-              <div className="text-xs text-stone-400 font-mono break-all">
-                {debugInfo}
               </div>
             )}
             
