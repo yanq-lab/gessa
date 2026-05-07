@@ -35,7 +35,9 @@ function ReviewContent() {
 
   const { progress, job, isPolling, error: restoreError, startPolling, setJobStatus } = useRestoreProgress();
 
-  const latestRestored = versions.filter(v => v.type === "restored").sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0];
+  const latestRestored = artwork?.restoredImageUrl 
+    ? { id: "restored", type: "restored", url: artwork.restoredImageUrl, createdAt: new Date().toISOString(), metadata: null }
+    : versions.filter(v => v.type === "restored").sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0];
 
   const fetchArtwork = useCallback(async () => {
     const { data: { session } } = await supabase.auth.getSession();
@@ -51,6 +53,9 @@ function ReviewContent() {
       const latest = versionData.filter(v => v.type === "restored")[0];
       setSelectedImage(latest.url);
       setSelectedVersionId(latest.id);
+      setSelectedVersionType("restored");
+    } else if (artworkData.restoredImageUrl) {
+      setSelectedImage(artworkData.restoredImageUrl);
       setSelectedVersionType("restored");
     } else {
       setSelectedImage(artworkData.originalImageUrl);

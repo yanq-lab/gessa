@@ -111,11 +111,11 @@ async function processRestoreJob(jobId: string, artworkId: string, userId: strin
     console.log(`[RestoreJob ${jobId}] Got generated image URL`);
 
     // Download generated image
-    console.log(`[RestoreJob ${jobId}] Downloading generated image...`);
-    const imageRes = await fetch(generatedImageUrl);
-    if (!imageRes.ok) throw new Error(`Failed to download generated image: ${imageRes.status}`);
-    const imageBytes = new Uint8Array(await imageRes.arrayBuffer());
-    console.log(`[RestoreJob ${jobId}] Downloaded generated image, size: ${imageBytes.length} bytes`);
+    // Create image version
+    
+    // Update artwork status
+    await supabase.from("Artwork").update({ status: "processing" }).eq("id", artworkId);
+
 
     // Upload to storage
     const timestamp = Date.now();
@@ -127,27 +127,7 @@ async function processRestoreJob(jobId: string, artworkId: string, userId: strin
     const restoredImageUrl = urlData.publicUrl;
     console.log(`[RestoreJob ${jobId}] Uploaded restored image: ${restoredImageUrl.substring(0, 50)}...`);
 
-    // Create image version
-    console.log(`[RestoreJob ${jobId}] Creating ArtworkImageVersion...`);
-    const { data: version } = await supabase.from("ArtworkImageVersion").insert({
-      artworkId,
-      type: "restored",
-      url: restoredImageUrl,
-      metadata: { mode, model: "gpt-image-2", provider: "cloudflare-workers" }
-    }).select("id").single();
-    console.log(`[RestoreJob ${jobId}] Created version: ${version?.id}`);
-
-    // Update artwork status
-    await supabase.from("Artwork").update({ status: "ready" }).eq("id", artworkId);
-
-    // Record usage
-    await supabase.rpc("record_transformation", { p_user_id: userId, p_artwork_id: artworkId });
-
-    // Update job to ready
-    await supabase.from("RestoreJob").update({
-      status: "ready",
-      completedAt: new Date().toISOString(),
-    }).eq("id", jobId);
+    return { ok: true, restoredUrl: restoredImageUrl };
 
     console.log(`[RestoreJob ${jobId}] Completed successfully`);
 

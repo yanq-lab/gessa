@@ -246,8 +246,11 @@ async function handleRestore(request: Request, env: Env): Promise<Response> {
     });
     console.log("[Worker] Version created");
 
-    // Update artwork status
-    await supabaseJson(jwt, `/rest/v1/Artwork?id=eq.${artworkId}`, "PATCH", { status: "ready" });
+    // Update artwork status AND store restored URL
+    await supabaseJson(jwt, `/rest/v1/Artwork?id=eq.${artworkId}`, "PATCH", {
+      status: "ready",
+      restoredImageUrl: restoredUrl,
+    });
 
     // Record usage (best-effort)
     try {
