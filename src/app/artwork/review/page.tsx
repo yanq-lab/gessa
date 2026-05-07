@@ -109,7 +109,7 @@ function ReviewContent() {
       // Worker processes synchronously and returns final result
       if (data.job?.status === "ready") {
         setJobStatus({
-          id: data.job.versionId || "done",
+          id: "done",
           status: "ready",
           mode: data.job.mode || mode,
           error: null,
