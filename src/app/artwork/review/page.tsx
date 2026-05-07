@@ -86,7 +86,7 @@ function ReviewContent() {
     toast.info("Restoration started. This may take 1-2 minutes.");
     
     try {
-      const res = await fetch(`${SUPABASE_URL}/functions/v1/restore-artwork`, {
+      const res = await fetch(`https://dev.gessa.art/restore`, {
         method: "POST",
         headers: { Authorization: `Bearer ${session.access_token}`, "Content-Type": "application/json" },
         body: JSON.stringify({ artworkId: id, mode }),
@@ -106,17 +106,19 @@ function ReviewContent() {
         return; 
       }
       
-      // Update with real job status from response
-      if (data.job) {
-        setJobStatus(data.job);
-        if (data.job.status === "ready") {
-          toast.success("Restoration complete!");
-          fetchArtwork();
-        } else if (data.job.status === "failed") {
-          toast.error(data.job.error || "Restoration failed");
-        }
-      } else if (data.jobId) {
-        startPolling(data.jobId);
+      // Worker processes synchronously and returns final result
+      if (data.job?.status === "ready") {
+        setJobStatus({
+          id: data.job.versionId || "done",
+          status: "ready",
+          mode: data.job.mode || mode,
+          error: null,
+          createdAt: new Date().toISOString(),
+          startedAt: null,
+          completedAt: new Date().toISOString(),
+        });
+        toast.success("Restoration complete!");
+        fetchArtwork();
       }
     } catch (err: any) { 
       toast.error("Network error. Please try again."); 
