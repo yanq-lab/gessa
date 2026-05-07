@@ -13,7 +13,7 @@ import { BeforeAfterSlider } from "@/components/before-after-slider";
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || "https://khqngwvvcoosqgtpmdan.supabase.co";
 
-interface Artwork { id: string; title: string; year: string | null; medium: string | null; originalImageUrl: string | null; status: string; artistProfileId: string; slug: string; }
+interface Artwork { id: string; title: string; year: string | null; medium: string | null; originalImageUrl: string | null; restoredImageUrl: string | null; status: string; artistProfileId: string; slug: string; publishedImageUrl?: string | null; }
 interface ImageVersion { id: string; type: string; url: string; createdAt: string; metadata: { mode?: string; model?: string; quality?: string } | null; }
 
 function ReviewContent() {
