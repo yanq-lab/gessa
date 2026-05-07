@@ -77,7 +77,7 @@ function extractStoragePath(imageUrl: string): string {
 
 async function downloadImage(jwt: string, storagePath: string): Promise<{ dataUri: string; size: number }> {
   console.log("[Worker] Downloading image from storage:", storagePath);
-  const url = `${SUPABASE_URL}/storage/v1/object/${storagePath}`;
+  const url = `${SUPABASE_URL}/storage/v1/object/artworks/${storagePath}`;
   const res = await fetch(url, { headers: supabaseHeaders(jwt) });
   if (!res.ok) {
     const err = await res.text();
