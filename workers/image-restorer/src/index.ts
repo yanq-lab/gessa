@@ -55,14 +55,22 @@ async function supabaseGet(jwt: string, path: string) {
 async function supabaseJson(jwt: string, path: string, method: string, body?: unknown) {
   const res = await fetch(`${SUPABASE_URL}${path}`, {
     method,
-    headers: { ...supabaseHeaders(jwt), "Content-Type": "application/json", ...(method === "PATCH" ? { Prefer: "return=representation" } : {}) },
+    headers: {
+      ...supabaseHeaders(jwt),
+      "Content-Type": "application/json",
+      ...(method === "PATCH" || method === "GET" ? { Prefer: "return=representation" } : {}),
+    },
     body: body ? JSON.stringify(body) : undefined,
   });
   if (!res.ok) {
     const err = await res.text();
     throw new Error(`Supabase ${method} ${path}: ${res.status} ${err}`);
   }
-  return method === "GET" || method === "POST" ? res.json() : null;
+  if (method === "GET") {
+    const text = await res.text();
+    return text ? JSON.parse(text) : [];
+  }
+  return null;
 }
 
 function extractStoragePath(imageUrl: string): string {
@@ -100,10 +108,10 @@ async function downloadImage(jwt: string, storagePath: string): Promise<{ dataUr
 
 async function uploadImage(jwt: string, userId: string, artworkId: string, imageBytes: Uint8Array): Promise<string> {
   const ts = Date.now();
-  const path = `${userId}/artworks/${artworkId}/restored-${ts}.png`;
-  console.log("[Worker] Uploading restored image:", path);
+  const objectPath = `${userId}/artworks/${artworkId}/restored-${ts}.png`;
+  console.log("[Worker] Uploading restored image:", objectPath);
 
-  const res = await fetch(`${SUPABASE_URL}/storage/v1/object/artworks/${path}`, {
+  const res = await fetch(`${SUPABASE_URL}/storage/v1/object/artworks/${objectPath}`, {
     method: "POST",
     headers: { ...supabaseHeaders(jwt), "Content-Type": "image/png" },
     body: imageBytes,
@@ -113,15 +121,8 @@ async function uploadImage(jwt: string, userId: string, artworkId: string, image
     throw new Error(`Failed to upload restored image: ${res.status} ${err}`);
   }
 
-  const data = (await res.json()) as { Id?: string; Key?: string };
-  const filePath = data.Key || path;
-
-  // Get public URL
-  const publicUrlRes = await supabaseGet(jwt, `/storage/v1/object/public/artworks/${encodeURIComponent(filePath)}`);
-  console.log("[Worker] Public URL:", publicUrlRes.url);
-
-  // Construct public URL manually
-  return `${SUPABASE_URL}/storage/v1/object/public/artworks/${filePath}`;
+  console.log("[Worker] Upload success, constructing public URL...");
+  return `${SUPABASE_URL}/storage/v1/object/public/artworks/${objectPath}`;
 }
 
 async function handleRestore(request: Request, env: Env): Promise<Response> {
@@ -237,13 +238,13 @@ async function handleRestore(request: Request, env: Env): Promise<Response> {
 
     // Create ArtworkImageVersion
     console.log("[Worker] Creating ArtworkImageVersion...");
-    const version = (await supabaseJson(jwt, "/rest/v1/ArtworkImageVersion", "POST", {
+    await supabaseJson(jwt, "/rest/v1/ArtworkImageVersion", "POST", {
       artworkId,
       type: "restored",
       url: restoredUrl,
       metadata: { mode, model: "gpt-image-2", provider: "cloudflare-workers" },
-    })) as Array<{ id: string }>;
-    console.log("[Worker] Version created:", version?.[0]?.id);
+    });
+    console.log("[Worker] Version created");
 
     // Update artwork status
     await supabaseJson(jwt, `/rest/v1/Artwork?id=eq.${artworkId}`, "PATCH", { status: "ready" });
@@ -267,7 +268,6 @@ async function handleRestore(request: Request, env: Env): Promise<Response> {
         status: "ready",
         mode,
         restoredUrl,
-        versionId: version?.[0]?.id,
       },
     });
   } catch (err: unknown) {
