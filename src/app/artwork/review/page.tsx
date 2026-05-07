@@ -31,7 +31,7 @@ function ReviewContent() {
   const [compared, setCompared] = useState(false);
   const [suitable, setSuitable] = useState(false);
   const [toolOnly, setToolOnly] = useState(false);
-  const [mode, setMode] = useState<"faithful" | "gallery">("faithful");
+  const [mode, setMode] = useState<"faithful">("faithful");
 
   const { progress, job, isPolling, error: restoreError, startPolling, setJobStatus } = useRestoreProgress();
 
@@ -222,13 +222,7 @@ function ReviewContent() {
             <div className="rounded-sm border border-stone-200 bg-white p-4 text-left">
               <h3 className="font-medium text-stone-900">Restore with AI</h3>
               <p className="mt-1 text-xs text-stone-500">Let Gessa automatically correct perspective, lighting, and color.</p>
-              <div className="mt-3">
-                <select value={mode} onChange={(e) => setMode(e.target.value as "faithful" | "gallery")} className="h-8 w-full rounded-md border border-stone-200 bg-white px-2 py-1 text-xs text-stone-700">
-                  <option value="faithful">Faithful — preserve original</option>
-                  <option value="gallery">Gallery — clean presentation</option>
-                </select>
-              </div>
-              <Button onClick={handleRestore} disabled={isRestoring} className="mt-3 w-full bg-stone-900 text-stone-50 hover:bg-stone-800 text-xs">
+              <Button onClick={handleRestore} disabled={isRestoring} className="mt-4 w-full bg-stone-900 text-stone-50 hover:bg-stone-800 text-xs">
                 {isRestoring ? <><Loader2 className="mr-1 h-3 w-3 animate-spin" />Restoring...</> : "Restore artwork"}
               </Button>
             </div>
