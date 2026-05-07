@@ -12,25 +12,37 @@ const corsHeaders = {
   "Access-Control-Max-Age": "86400",
 };
 
-const FAITHFUL_PROMPT = `Faithful digital restoration of this photographed physical artwork.
-Identify the artwork as the main subject.
-Remove distracting background outside the artwork.
-Straighten the artwork and correct perspective distortion.
-Reduce uneven lighting, glare, shadows, and camera color cast.
-Preserve the artwork exactly: composition, subject, brushwork, paper texture, canvas texture, edges, signature, marks, and imperfections.
-Do not reinterpret, repaint, redesign, beautify, or invent details.
-Do not change the artist's style.
-Do not remove the artist's signature or intentional marks.
-The result should look like a professionally photographed or digitized version of the same physical artwork.`;
+const FAITHFUL_PROMPT = `Professional digital reproduction of a physical artwork from a photograph.
 
-const GALLERY_PROMPT = `Clean online gallery presentation of this physical artwork.
-Keep the artwork itself faithful and unchanged.
-Remove distracting background around the artwork.
-Straighten and crop the artwork.
-Correct lighting and color cast.
-Present it as a front-facing artwork image on a clean neutral background.
-Do not stylize, repaint, reinterpret, improve, or invent details.
-The result must remain a faithful representation of the uploaded physical artwork.`;
+CRITICAL CROPPING RULES:
+- Crop EXACTLY to the edges of the artwork itself — the painted or drawn surface.
+- Remove 100% of the frame, mat, border, wall, table, easel, floor, and any background surface.
+- The artwork boundary is where the physical painting/drawing ends. This is the crop line.
+- Do NOT leave any border, margin, or non-artwork area around the edges.
+
+RESTORATION RULES:
+- Straighten the artwork to be perfectly rectangular.
+- Correct perspective distortion so the artwork appears front-facing.
+- Even out lighting, remove glare, shadows, and camera color cast.
+- Do NOT change the artwork itself: preserve composition, brushwork, texture, colors, signature, and all marks.
+- Do NOT repaint, reinterpret, stylize, beautify, or invent any details.
+- The result should look like a professional museum-quality scan of the artwork — nothing more, nothing less.`;
+
+const GALLERY_PROMPT = `Professional gallery presentation of a physical artwork from a photograph.
+
+CRITICAL CROPPING RULES:
+- Crop EXACTLY to the edges of the artwork itself — the painted or drawn surface.
+- Remove 100% of the frame, mat, border, wall, table, easel, floor, and any background surface.
+- The artwork boundary is where the physical painting/drawing ends. This is the crop line.
+- Do NOT leave any border, margin, or non-artwork area around the edges.
+
+PRESENTATION RULES:
+- After cropping to the artwork edges, present the artwork on a clean, neutral gallery background (soft white or light gray).
+- Straighten the artwork to be perfectly rectangular and front-facing.
+- Correct lighting and color cast for accurate reproduction.
+- Do NOT change the artwork itself: preserve composition, brushwork, texture, colors, signature, and all marks.
+- Do NOT stylize, repaint, reinterpret, improve, or invent any details.
+- The result should look like a professionally photographed artwork in a gallery catalog.`;
 
 function json(data: unknown, status = 200) {
   return new Response(JSON.stringify(data), { status, headers: { ...corsHeaders, "Content-Type": "application/json" } });
