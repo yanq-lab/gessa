@@ -206,7 +206,8 @@ function ReviewContent() {
           <RestoreProgressBar 
             progress={progress} 
             status={job?.status || "queued"} 
-            error={restoreError} 
+            error={restoreError}
+            originalImage={artwork?.originalImageUrl}
           />
         </div>
       )}

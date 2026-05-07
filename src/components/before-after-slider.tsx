@@ -55,7 +55,7 @@ export function BeforeAfterSlider({
       <img
         src={afterImage}
         alt="After"
-        className="block h-full w-full object-cover"
+        className="block h-full w-full object-contain bg-white"
         draggable={false}
       />
 
@@ -67,7 +67,7 @@ export function BeforeAfterSlider({
         <img
           src={beforeImage}
           alt="Before"
-          className="block h-full w-full object-cover"
+          className="block h-full w-full object-contain bg-white"
           draggable={false}
         />
       </div>
