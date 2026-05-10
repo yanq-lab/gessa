@@ -8,9 +8,8 @@ export function Footer() {
           <p className="text-xs text-stone-500">Faithful digital presentation for physical artworks.</p>
           <div className="flex gap-6">
             <Link href="/" className="text-xs text-stone-500 hover:text-stone-900 transition-colors">Home</Link>
-            <Link href="/auth/signin" className="text-xs text-stone-500 hover:text-stone-900 transition-colors">Sign in</Link>
-            <Link href="/terms" className="text-xs text-stone-500 hover:text-stone-900 transition-colors">Terms</Link>
-            <Link href="/privacy" className="text-xs text-stone-500 hover:text-stone-900 transition-colors">Privacy</Link>
+            <Link href="/pricing" className="text-xs text-stone-500 hover:text-stone-900 transition-colors">Pricing</Link>
+            <Link href="/account" className="text-xs text-stone-500 hover:text-stone-900 transition-colors">Account</Link>
           </div>
         </div>
       </div>

@@ -1,9 +1,12 @@
 export interface Env {
   AI: Ai;
+  STRIPE_SECRET_KEY: string;
+  STRIPE_WEBHOOK_SECRET: string;
+  CLERK_SECRET_KEY: string;
+  SUPABASE_SERVICE_ROLE_KEY: string;
 }
 
 const SUPABASE_URL = "https://khqngwvvcoosqgtpmdan.supabase.co";
-const SUPABASE_ANON_KEY = "sb_publishable_fA9fti-EZ5v7hVvVvhm-tg_QsUzhM5E";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -28,35 +31,25 @@ RESTORATION RULES:
 - Do NOT repaint, reinterpret, stylize, beautify, or invent any details.
 - The result should look like a professional museum-quality scan of the artwork — nothing more, nothing less.`;
 
-const GALLERY_PROMPT = `Professional gallery presentation of a physical artwork from a photograph.
-
-CRITICAL CROPPING RULES:
-- Crop EXACTLY to the edges of the artwork itself — the painted or drawn surface.
-- Remove 100% of the frame, mat, border, wall, table, easel, floor, and any background surface.
-- The artwork boundary is where the physical painting/drawing ends. This is the crop line.
-- Do NOT leave any border, margin, or non-artwork area around the edges.
-
-PRESENTATION RULES:
-- After cropping to the artwork edges, present the artwork on a clean, neutral gallery background (soft white or light gray).
-- Straighten the artwork to be perfectly rectangular and front-facing.
-- Correct lighting and color cast for accurate reproduction.
-- Do NOT change the artwork itself: preserve composition, brushwork, texture, colors, signature, and all marks.
-- Do NOT stylize, repaint, reinterpret, improve, or invent any details.
-- The result should look like a professionally photographed artwork in a gallery catalog.`;
+const CREDIT_PACKAGES = [
+  { id: "starter", credits: 5, price: 1000, label: "Starter" },
+  { id: "creator", credits: 20, price: 3000, label: "Creator" },
+  { id: "studio", credits: 50, price: 6000, label: "Studio" },
+];
 
 function json(data: unknown, status = 200) {
   return new Response(JSON.stringify(data), { status, headers: { ...corsHeaders, "Content-Type": "application/json" } });
 }
 
-function supabaseHeaders(jwt: string): Record<string, string> {
+function serviceRoleHeaders(serviceKey: string): Record<string, string> {
   return {
-    apikey: SUPABASE_ANON_KEY,
-    Authorization: `Bearer ${jwt}`,
+    apikey: serviceKey,
+    Authorization: `Bearer ${serviceKey}`,
   };
 }
 
-async function supabaseGet(jwt: string, path: string) {
-  const res = await fetch(`${SUPABASE_URL}${path}`, { headers: supabaseHeaders(jwt) });
+async function supabaseServiceGet(env: Env, path: string) {
+  const res = await fetch(`${SUPABASE_URL}${path}`, { headers: serviceRoleHeaders(env.SUPABASE_SERVICE_ROLE_KEY) });
   if (!res.ok) {
     const err = await res.text();
     throw new Error(`Supabase GET ${path}: ${res.status} ${err}`);
@@ -64,11 +57,11 @@ async function supabaseGet(jwt: string, path: string) {
   return res;
 }
 
-async function supabaseJson(jwt: string, path: string, method: string, body?: unknown) {
+async function supabaseServiceJson(env: Env, path: string, method: string, body?: unknown) {
   const res = await fetch(`${SUPABASE_URL}${path}`, {
     method,
     headers: {
-      ...supabaseHeaders(jwt),
+      ...serviceRoleHeaders(env.SUPABASE_SERVICE_ROLE_KEY),
       "Content-Type": "application/json",
       ...(method === "PATCH" || method === "GET" ? { Prefer: "return=representation" } : {}),
     },
@@ -85,6 +78,39 @@ async function supabaseJson(jwt: string, path: string, method: string, body?: un
   return null;
 }
 
+async function verifyClerkToken(token: string, env: Env): Promise<{ userId: string; email?: string }> {
+  const res = await fetch("https://api.clerk.dev/v1/sessions/verify", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${env.CLERK_SECRET_KEY}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ token }),
+  });
+  if (!res.ok) {
+    throw new Error(`Clerk auth failed: ${res.status}`);
+  }
+  const data = (await res.json()) as { user_id: string; status: string };
+  if (data.status !== "active") {
+    throw new Error("Session not active");
+  }
+  return { userId: data.user_id };
+}
+
+async function getOrCreateUser(env: Env, userId: string, email?: string) {
+  const existing = await supabaseServiceJson(env, `/rest/v1/User?id=eq.${userId}&select=*`, "GET") as Array<{ id: string; credits: number }>;
+  if (existing.length) {
+    return existing[0];
+  }
+  await supabaseServiceJson(env, "/rest/v1/User", "POST", {
+    id: userId,
+    email,
+    credits: 1,
+    createdAt: new Date().toISOString(),
+  });
+  return { id: userId, credits: 1 };
+}
+
 function extractStoragePath(imageUrl: string): string {
   try {
     const u = new URL(imageUrl);
@@ -95,17 +121,15 @@ function extractStoragePath(imageUrl: string): string {
   return imageUrl;
 }
 
-async function downloadImage(jwt: string, storagePath: string): Promise<{ dataUri: string; size: number }> {
-  console.log("[Worker] Downloading image from storage:", storagePath);
+async function downloadImage(env: Env, storagePath: string): Promise<{ dataUri: string; size: number }> {
+  console.log("[Worker] Downloading image:", storagePath);
   const url = `${SUPABASE_URL}/storage/v1/object/artworks/${storagePath}`;
-  const res = await fetch(url, { headers: supabaseHeaders(jwt) });
+  const res = await fetch(url, { headers: serviceRoleHeaders(env.SUPABASE_SERVICE_ROLE_KEY) });
   if (!res.ok) {
     const err = await res.text();
     throw new Error(`Failed to download image: ${res.status} ${err}`);
   }
   const blob = await res.blob();
-  console.log("[Worker] Downloaded image, size:", blob.size);
-
   const buf = await blob.arrayBuffer();
   const bytes = new Uint8Array(buf);
   let bin = "";
@@ -118,64 +142,55 @@ async function downloadImage(jwt: string, storagePath: string): Promise<{ dataUr
   return { dataUri: `data:${mime};base64,${b64}`, size: blob.size };
 }
 
-async function uploadImage(jwt: string, userId: string, artworkId: string, imageBytes: Uint8Array): Promise<string> {
+async function uploadImage(env: Env, userId: string, artworkId: string, imageBytes: Uint8Array): Promise<string> {
   const ts = Date.now();
   const objectPath = `${userId}/artworks/${artworkId}/restored-${ts}.png`;
-  console.log("[Worker] Uploading restored image:", objectPath);
-
   const res = await fetch(`${SUPABASE_URL}/storage/v1/object/artworks/${objectPath}`, {
     method: "POST",
-    headers: { ...supabaseHeaders(jwt), "Content-Type": "image/png" },
+    headers: { ...serviceRoleHeaders(env.SUPABASE_SERVICE_ROLE_KEY), "Content-Type": "image/png" },
     body: imageBytes,
   });
   if (!res.ok) {
     const err = await res.text();
-    throw new Error(`Failed to upload restored image: ${res.status} ${err}`);
+    throw new Error(`Failed to upload: ${res.status} ${err}`);
   }
-
-  console.log("[Worker] Upload success, constructing public URL...");
   return `${SUPABASE_URL}/storage/v1/object/public/artworks/${objectPath}`;
 }
 
 async function handleRestore(request: Request, env: Env): Promise<Response> {
-  // Read auth header
   const authHeader = request.headers.get("Authorization");
   if (!authHeader?.startsWith("Bearer ")) {
     return json({ ok: false, error: { code: "UNAUTHORIZED", message: "Missing authorization" } }, 401);
   }
-  const jwt = authHeader.replace("Bearer ", "");
+  const token = authHeader.replace("Bearer ", "");
 
-  // Validate user JWT and get user ID
-  console.log("[Worker] Validating user JWT...");
-  const userRes = await fetch(`${SUPABASE_URL}/auth/v1/user`, {
-    headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${jwt}` },
-  });
-  if (!userRes.ok) {
-    const err = await userRes.text();
-    console.error("[Worker] Auth validation failed:", err);
+  let userId: string;
+  try {
+    const clerkUser = await verifyClerkToken(token, env);
+    userId = clerkUser.userId;
+  } catch {
     return json({ ok: false, error: { code: "UNAUTHORIZED", message: "Invalid authentication" } }, 401);
   }
-  const userData = (await userRes.json()) as { id: string; email?: string };
-  const userId = userData.id;
-  console.log("[Worker] Authenticated user:", userId);
 
-  // Read request body
-  let body: { artworkId?: string; mode?: string };
+  let body: { artworkId?: string };
   try {
-    body = (await request.json()) as { artworkId?: string; mode?: string };
+    body = (await request.json()) as { artworkId?: string };
   } catch {
     return json({ ok: false, error: { code: "INVALID_JSON", message: "Invalid request body" } }, 400);
   }
-  const { artworkId, mode = "faithful" } = body;
+  const { artworkId } = body;
   if (!artworkId) {
     return json({ ok: false, error: { code: "MISSING_ARTWORK_ID", message: "artworkId is required" } }, 400);
   }
-  console.log("[Worker] Restore request: artworkId=", artworkId, "mode=", mode);
 
-  // Fetch artwork
-  const artwork = (await supabaseJson(jwt, `/rest/v1/Artwork?id=eq.${artworkId}&select=id,artistProfileId,originalImageUrl,status`, "GET")) as Array<{
+  const user = await getOrCreateUser(env, userId);
+  if (user.credits < 1) {
+    return json({ ok: false, error: { code: "NO_CREDITS", message: "Insufficient credits. Please purchase more." } }, 402);
+  }
+
+  const artwork = (await supabaseServiceJson(env, `/rest/v1/Artwork?id=eq.${artworkId}&select=id,userId,originalImageUrl,status`, "GET")) as Array<{
     id: string;
-    artistProfileId: string;
+    userId: string;
     originalImageUrl: string | null;
     status: string;
   }>;
@@ -184,9 +199,7 @@ async function handleRestore(request: Request, env: Env): Promise<Response> {
   }
   const art = artwork[0];
 
-  // Verify ownership via ArtistProfile
-  const profiles = (await supabaseJson(jwt, `/rest/v1/ArtistProfile?id=eq.${art.artistProfileId}&select=userId`, "GET")) as Array<{ userId: string }>;
-  if (!profiles.length || profiles[0].userId !== userId) {
+  if (art.userId !== userId) {
     return json({ ok: false, error: { code: "FORBIDDEN", message: "You do not own this artwork" } }, 403);
   }
 
@@ -194,36 +207,24 @@ async function handleRestore(request: Request, env: Env): Promise<Response> {
     return json({ ok: false, error: { code: "NO_IMAGE", message: "No original image found" } }, 400);
   }
 
-  // Check regeneration limit
-  const regenCount = (await supabaseJson(jwt, `/rest/v1/ArtworkImageVersion?artworkId=eq.${artworkId}&type=eq.restored&select=id`, "GET")) as Array<unknown>;
-  if ((regenCount?.length || 0) >= 3) {
-    return json({ ok: false, error: { code: "REGENERATION_LIMIT", message: "Maximum 3 regenerations per artwork." } }, 429);
-  }
-
-  // Update artwork status to processing
-  console.log("[Worker] Updating artwork status to processing...");
-  await supabaseJson(jwt, `/rest/v1/Artwork?id=eq.${artworkId}`, "PATCH", { status: "processing" });
+  await supabaseServiceJson(env, `/rest/v1/User?id=eq.${userId}`, "PATCH", { credits: user.credits - 1 });
+  await supabaseServiceJson(env, `/rest/v1/Artwork?id=eq.${artworkId}`, "PATCH", { status: "processing" });
 
   try {
-    // Download original image
     const storagePath = extractStoragePath(art.originalImageUrl);
-    const { dataUri, size } = await downloadImage(jwt, storagePath);
-    console.log("[Worker] Original image converted to base64, size:", size);
+    const { dataUri, size } = await downloadImage(env, storagePath);
 
-    // Call Workers AI
-    const prompt = mode === "gallery" ? GALLERY_PROMPT : FAITHFUL_PROMPT;
-    console.log("[Worker] Calling Workers AI with gpt-image-2...");
+    console.log("[Worker] Calling Workers AI...");
     const aiResponse = await env.AI.run(
       "openai/gpt-image-2",
       {
-        prompt,
+        prompt: FAITHFUL_PROMPT,
         quality: "auto",
         size: "1024x1024",
         images: [dataUri],
       },
       { gateway: { id: "default" } }
     );
-    console.log("[Worker] AI response:", JSON.stringify(aiResponse).substring(0, 200));
 
     const result = aiResponse as { state?: string; result?: { image?: string }; error?: string };
     if (result.error) {
@@ -235,88 +236,175 @@ async function handleRestore(request: Request, env: Env): Promise<Response> {
       throw new Error("No image returned from AI");
     }
 
-    // Download generated image
-    console.log("[Worker] Downloading generated image...");
     const imgRes = await fetch(generatedUrl);
     if (!imgRes.ok) {
       throw new Error(`Failed to download generated image: ${imgRes.status}`);
     }
     const imgBuf = await imgRes.arrayBuffer();
     const imgBytes = new Uint8Array(imgBuf);
-    console.log("[Worker] Generated image downloaded, size:", imgBytes.length);
 
-    // Upload to Supabase Storage
-    const restoredUrl = await uploadImage(jwt, userId, artworkId, imgBytes);
+    const restoredUrl = await uploadImage(env, userId, artworkId, imgBytes);
 
-    // Create ArtworkImageVersion
-    console.log("[Worker] Creating ArtworkImageVersion...");
-    await supabaseJson(jwt, "/rest/v1/ArtworkImageVersion", "POST", {
-      artworkId,
-      type: "restored",
-      url: restoredUrl,
-      metadata: { mode, model: "gpt-image-2", provider: "cloudflare-workers" },
-    });
-    console.log("[Worker] Version created");
-
-    // Update artwork status AND store restored URL
-    await supabaseJson(jwt, `/rest/v1/Artwork?id=eq.${artworkId}`, "PATCH", {
+    await supabaseServiceJson(env, `/rest/v1/Artwork?id=eq.${artworkId}`, "PATCH", {
       status: "ready",
       restoredImageUrl: restoredUrl,
     });
-
-    // Record usage (best-effort)
-    try {
-      await fetch(`${SUPABASE_URL}/rest/v1/rpc/record_transformation`, {
-        method: "POST",
-        headers: { ...supabaseHeaders(jwt), "Content-Type": "application/json" },
-        body: JSON.stringify({ p_user_id: userId, p_artwork_id: artworkId }),
-      });
-    } catch {
-      console.log("[Worker] Failed to record usage (non-critical)");
-    }
-
-    console.log("[Worker] Restore complete!");
 
     return json({
       ok: true,
       job: {
         status: "ready",
-        mode,
         restoredUrl,
+        remainingCredits: user.credits - 1,
       },
     });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : "Unknown error";
     console.error("[Worker] Restore failed:", message);
-
-    // Reset artwork status
-    await supabaseJson(jwt, `/rest/v1/Artwork?id=eq.${artworkId}`, "PATCH", { status: "uploaded" }).catch(() => {});
-
+    await supabaseServiceJson(env, `/rest/v1/User?id=eq.${userId}`, "PATCH", { credits: user.credits }).catch(() => {});
+    await supabaseServiceJson(env, `/rest/v1/Artwork?id=eq.${artworkId}`, "PATCH", { status: "uploaded" }).catch(() => {});
     return json({ ok: false, error: { code: "RESTORE_FAILED", message } }, 500);
   }
 }
 
-async function handleImageGeneration(request: Request, env: Env): Promise<Response> {
-  try {
-    const body = (await request.json()) as { prompt: string; image?: string };
-    const { prompt, image } = body;
-
-    if (!prompt) {
-      return json({ error: "Missing prompt" }, 400);
-    }
-
-    const input: Record<string, unknown> = { prompt, quality: "auto", size: "1024x1024" };
-    if (image && image !== "none") {
-      input.images = [image];
-    }
-
-    console.log("[Worker] Calling Workers AI (legacy)...");
-    const response = await env.AI.run("openai/gpt-image-2", input, { gateway: { id: "default" } });
-    return json(response);
-  } catch (err) {
-    const message = err instanceof Error ? err.message : "Unknown error";
-    return json({ error: message }, 500);
+async function handleCredits(request: Request, env: Env): Promise<Response> {
+  const authHeader = request.headers.get("Authorization");
+  if (!authHeader?.startsWith("Bearer ")) {
+    return json({ ok: false, error: { code: "UNAUTHORIZED", message: "Missing authorization" } }, 401);
   }
+  const token = authHeader.replace("Bearer ", "");
+
+  let userId: string;
+  try {
+    const clerkUser = await verifyClerkToken(token, env);
+    userId = clerkUser.userId;
+  } catch {
+    return json({ ok: false, error: { code: "UNAUTHORIZED", message: "Invalid authentication" } }, 401);
+  }
+
+  const user = await getOrCreateUser(env, userId);
+  return json({ ok: true, credits: user.credits });
+}
+
+async function handleStripeCheckout(request: Request, env: Env): Promise<Response> {
+  const authHeader = request.headers.get("Authorization");
+  if (!authHeader?.startsWith("Bearer ")) {
+    return json({ ok: false, error: { code: "UNAUTHORIZED", message: "Missing authorization" } }, 401);
+  }
+  const token = authHeader.replace("Bearer ", "");
+
+  let userId: string;
+  try {
+    const clerkUser = await verifyClerkToken(token, env);
+    userId = clerkUser.userId;
+  } catch {
+    return json({ ok: false, error: { code: "UNAUTHORIZED", message: "Invalid authentication" } }, 401);
+  }
+
+  let body: { packageId?: string; successUrl?: string; cancelUrl?: string };
+  try {
+    body = (await request.json()) as typeof body;
+  } catch {
+    return json({ ok: false, error: { code: "INVALID_JSON", message: "Invalid request body" } }, 400);
+  }
+
+  const pkg = CREDIT_PACKAGES.find((p) => p.id === body.packageId);
+  if (!pkg) {
+    return json({ ok: false, error: { code: "INVALID_PACKAGE", message: "Invalid package ID" } }, 400);
+  }
+
+  const params = new URLSearchParams();
+  params.append("mode", "payment");
+  params.append("success_url", body.successUrl || "https://gessa.art/account?success=true");
+  params.append("cancel_url", body.cancelUrl || "https://gessa.art/pricing?canceled=true");
+  params.append("line_items[0][price_data][currency]", "usd");
+  params.append("line_items[0][price_data][product_data][name]", `${pkg.label} Package`);
+  params.append("line_items[0][price_data][product_data][description]", `${pkg.credits} restoration credits`);
+  params.append("line_items[0][price_data][unit_amount]", String(pkg.price));
+  params.append("line_items[0][quantity]", "1");
+  params.append("metadata[userId]", userId);
+  params.append("metadata[packageId]", pkg.id);
+  params.append("metadata[credits]", String(pkg.credits));
+
+  const res = await fetch("https://api.stripe.com/v1/checkout/sessions", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${env.STRIPE_SECRET_KEY}`,
+      "Content-Type": "application/x-www-form-urlencoded",
+    },
+    body: params.toString(),
+  });
+
+  if (!res.ok) {
+    const err = await res.text();
+    return json({ ok: false, error: { code: "STRIPE_ERROR", message: err } }, 500);
+  }
+
+  const session = (await res.json()) as { url: string };
+  return json({ ok: true, url: session.url });
+}
+
+async function handleStripeWebhook(request: Request, env: Env): Promise<Response> {
+  const payload = await request.text();
+  const sig = request.headers.get("stripe-signature");
+  if (!sig) {
+    return json({ error: "Missing signature" }, 400);
+  }
+
+  try {
+    const parsed = JSON.parse(payload);
+    if (parsed.id) {
+      const verifyRes = await fetch(`https://api.stripe.com/v1/events/${parsed.id}`, {
+        headers: { Authorization: `Bearer ${env.STRIPE_SECRET_KEY}` },
+      });
+      if (!verifyRes.ok) {
+        return json({ error: "Invalid event" }, 400);
+      }
+      const event = (await verifyRes.json()) as { type: string; data: { object: { metadata?: { userId?: string; credits?: string } } } };
+      
+      if (event.type === "checkout.session.completed") {
+        const session = event.data.object;
+        const userId = session.metadata?.userId;
+        const creditsToAdd = parseInt(session.metadata?.credits || "0", 10);
+
+        if (userId && creditsToAdd > 0) {
+          const user = await getOrCreateUser(env, userId);
+          await supabaseServiceJson(env, `/rest/v1/User?id=eq.${userId}`, "PATCH", {
+            credits: user.credits + creditsToAdd,
+          });
+          console.log(`[Worker] Added ${creditsToAdd} credits to user ${userId}`);
+        }
+      }
+    }
+  } catch {
+    return json({ error: "Invalid payload" }, 400);
+  }
+
+  return json({ received: true });
+}
+
+async function handleGetArtworks(request: Request, env: Env): Promise<Response> {
+  const authHeader = request.headers.get("Authorization");
+  if (!authHeader?.startsWith("Bearer ")) {
+    return json({ ok: false, error: { code: "UNAUTHORIZED", message: "Missing authorization" } }, 401);
+  }
+  const token = authHeader.replace("Bearer ", "");
+
+  let userId: string;
+  try {
+    const clerkUser = await verifyClerkToken(token, env);
+    userId = clerkUser.userId;
+  } catch {
+    return json({ ok: false, error: { code: "UNAUTHORIZED", message: "Invalid authentication" } }, 401);
+  }
+
+  const artworks = (await supabaseServiceJson(
+    env,
+    `/rest/v1/Artwork?userId=eq.${userId}&select=id,title,originalImageUrl,restoredImageUrl,status,createdAt&order=createdAt.desc`,
+    "GET"
+  )) as Array<Record<string, any>>;
+
+  return json({ ok: true, artworks });
 }
 
 const rateLimitMap = new Map<string, { count: number; resetTime: number }>();
@@ -341,20 +429,33 @@ export default {
     }
 
     const ip = request.headers.get("cf-connecting-ip") || "unknown";
-    const limit = checkRateLimit(ip, 10, 60000);
+    const limit = checkRateLimit(ip, 30, 60000);
     if (!limit.allowed) {
       return json({ error: "Rate limit exceeded. Try again later." }, 429);
     }
 
     const url = new URL(request.url);
+
     if (url.pathname === "/restore" && request.method === "POST") {
       return handleRestore(request, env);
     }
 
-    if (request.method === "POST") {
-      return handleImageGeneration(request, env);
+    if (url.pathname === "/credits" && request.method === "GET") {
+      return handleCredits(request, env);
     }
 
-    return json({ error: "Use POST /restore or POST /" }, 405);
+    if (url.pathname === "/artworks" && request.method === "GET") {
+      return handleGetArtworks(request, env);
+    }
+
+    if (url.pathname === "/stripe/checkout" && request.method === "POST") {
+      return handleStripeCheckout(request, env);
+    }
+
+    if (url.pathname === "/stripe/webhook" && request.method === "POST") {
+      return handleStripeWebhook(request, env);
+    }
+
+    return json({ error: "Not found" }, 404);
   },
 };
