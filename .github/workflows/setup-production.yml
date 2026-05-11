@@ -1,0 +1,44 @@
+name: Setup Gessa Production
+
+on:
+  workflow_dispatch:
+
+jobs:
+  setup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Setup Domain and Secrets
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
+          STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
+        run: |
+          echo "=== Adding custom domain to Pages ==="
+          curl -s -X POST "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/pages/projects/gessa/domains" \
+            -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+            -H "Content-Type: application/json" \
+            -d '{"domain":"gessa.art"}' | jq .
+          
+          echo "=== Setting Worker secrets ==="
+          # Set STRIPE_SECRET_KEY
+          curl -s -X PUT "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/workers/scripts/gessa-image-restorer/secrets" \
+            -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+            -H "Content-Type: application/json" \
+            -d "{
+              \"name\": \"STRIPE_SECRET_KEY\",
+              \"text\": \"${STRIPE_SECRET_KEY}\",
+              \"type\": \"secret_text\"
+            }" | jq .
+          
+          # Set STRIPE_WEBHOOK_SECRET
+          curl -s -X PUT "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/workers/scripts/gessa-image-restorer/secrets" \
+            -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+            -H "Content-Type: application/json" \
+            -d "{
+              \"name\": \"STRIPE_WEBHOOK_SECRET\",
+              \"text\": \"${STRIPE_WEBHOOK_SECRET}\",
+              \"type\": \"secret_text\"
+            }" | jq .
+          
+          echo "=== Setup complete ==="
